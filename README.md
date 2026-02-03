@@ -22,7 +22,7 @@ The `test-inference-api.sh` script provides comprehensive integration tests for 
 
 **With a custom base URL:**
 ```bash
-./test-inference-api.sh http://lm-alb-1402483560.us-east-1.elb.amazonaws.com
+./test-inference-api.sh http://llm-alb-1402483560.us-east-1.elb.amazonaws.com
 ```
 
 **Basic usage (localhost:8080):**
