@@ -1,0 +1,25 @@
+{
+    "LambdaFunctionConfigurations": [
+        {
+            "Id": "CSVUploadTrigger",
+            "LambdaFunctionArn": "arn:aws:lambda:us-east-1:717914742237:function:llm-s3-ingestion-trigger",
+            "Events": [
+                "s3:ObjectCreated:*"
+            ],
+            "Filter": {
+                "Key": {
+                    "FilterRules": [
+                        {
+                            "Name": "prefix",
+                            "Value": "incoming/"
+                        },
+                        {
+                            "Name": "suffix",
+                            "Value": ".csv"
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+}

@@ -1,0 +1,9 @@
+{
+    "TargetValue": 100.0,
+    "PredefinedMetricSpecification": {
+        "PredefinedMetricType": "ALBRequestCountPerTarget",
+        "ResourceLabel": "app/llm-alb/7382b15b5164fe50/targetgroup/llm-targets/082f336db91ea34d"
+    },
+    "ScaleOutCooldown": 60,
+    "ScaleInCooldown": 300
+}

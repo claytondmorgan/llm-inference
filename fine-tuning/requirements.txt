@@ -1,0 +1,10 @@
+sentence-transformers>=3.0
+datasets>=2.19
+transformers>=4.41
+accelerate>=0.31
+torch>=2.1
+anthropic>=0.25
+psycopg2-binary>=2.9
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.3

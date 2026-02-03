@@ -1,0 +1,36 @@
+{
+    "family": "llm-ingestion-worker",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "2048",
+    "memory": "4096",
+    "executionRoleArn": "arn:aws:iam::717914742237:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::717914742237:role/ecsIngestionTaskRole",
+    "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+    },
+    "containerDefinitions": [
+        {
+            "name": "ingestion-worker",
+            "image": "717914742237.dkr.ecr.us-east-1.amazonaws.com/llm-ingestion-worker:latest",
+            "essential": true,
+            "environment": [
+                {"name": "AWS_REGION", "value": "us-east-1"},
+                {"name": "DB_SECRET_NAME", "value": "llm-db-credentials"},
+                {"name": "SQS_QUEUE_URL", "value": "https://sqs.us-east-1.amazonaws.com/717914742237/llm-ingestion-queue"},
+                {"name": "BATCH_SIZE", "value": "100"},
+                {"name": "EMBEDDING_BATCH_SIZE", "value": "32"},
+                {"name": "EMBED_MODEL_ID", "value": "sentence-transformers/all-MiniLM-L6-v2"}
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/llm-ingestion",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "worker"
+                }
+            }
+        }
+    ]
+}

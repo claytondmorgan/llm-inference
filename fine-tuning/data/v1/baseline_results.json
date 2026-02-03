@@ -1,0 +1,16 @@
+{
+  "amazon-products-baseline_cosine_accuracy@1": 0.21875,
+  "amazon-products-baseline_cosine_accuracy@3": 0.2625,
+  "amazon-products-baseline_cosine_accuracy@5": 0.29625,
+  "amazon-products-baseline_cosine_accuracy@10": 0.32875,
+  "amazon-products-baseline_cosine_precision@5": 0.059250000000000004,
+  "amazon-products-baseline_cosine_precision@10": 0.032875,
+  "amazon-products-baseline_cosine_recall@5": 0.29625,
+  "amazon-products-baseline_cosine_recall@10": 0.32875,
+  "amazon-products-baseline_cosine_ndcg@5": 0.257611882346035,
+  "amazon-products-baseline_cosine_ndcg@10": 0.26800735173610574,
+  "amazon-products-baseline_cosine_mrr@1": 0.21875,
+  "amazon-products-baseline_cosine_mrr@5": 0.24500000000000002,
+  "amazon-products-baseline_cosine_mrr@10": 0.24922519841269847,
+  "amazon-products-baseline_cosine_map@100": 0.2561058802872384
+}

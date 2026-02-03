@@ -1,0 +1,28 @@
+{
+    "family": "llm-db-setup-task",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::717914742237:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::717914742237:role/ecsTaskRole",
+    "containerDefinitions": [
+        {
+            "name": "setup-container",
+            "image": "717914742237.dkr.ecr.us-east-1.amazonaws.com/llm-db-setup:latest",
+            "essential": true,
+            "environment": [
+                {"name": "DB_SECRET_NAME", "value": "llm-db-credentials"},
+                {"name": "AWS_REGION", "value": "us-east-1"}
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/llm-inference",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "db-setup"
+                }
+            }
+        }
+    ]
+}

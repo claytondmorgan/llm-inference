@@ -1,0 +1,306 @@
+{
+  "config": {
+    "base_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "finetuned_model": "/Users/claymorgan/llm-inference/fine-tuning/data/v1/model",
+    "corpus_size": 1000,
+    "test_queries": 800,
+    "version": 1
+  },
+  "metrics": {
+    "cosine_ndcg@5": {
+      "baseline": 0.257611882346035,
+      "finetuned": 0.29528522445039335,
+      "delta": 0.037673342104358354,
+      "pct_change": 14.624070039499944
+    },
+    "cosine_ndcg@10": {
+      "baseline": 0.26800735173610574,
+      "finetuned": 0.3134473490008316,
+      "delta": 0.04543999726472586,
+      "pct_change": 16.954757759581348
+    },
+    "cosine_mrr@10": {
+      "baseline": 0.24922519841269847,
+      "finetuned": 0.2897802579365078,
+      "delta": 0.040555059523809334,
+      "pct_change": 16.27245550694804
+    },
+    "cosine_accuracy@1": {
+      "baseline": 0.21875,
+      "finetuned": 0.2525,
+      "delta": 0.03375,
+      "pct_change": 15.42857142857143
+    },
+    "cosine_accuracy@5": {
+      "baseline": 0.29625,
+      "finetuned": 0.33375,
+      "delta": 0.03749999999999998,
+      "pct_change": 12.658227848101259
+    },
+    "cosine_accuracy@10": {
+      "baseline": 0.32875,
+      "finetuned": 0.39125,
+      "delta": 0.0625,
+      "pct_change": 19.011406844106464
+    },
+    "cosine_recall@5": {
+      "baseline": 0.29625,
+      "finetuned": 0.33375,
+      "delta": 0.03749999999999998,
+      "pct_change": 12.658227848101259
+    },
+    "cosine_recall@10": {
+      "baseline": 0.32875,
+      "finetuned": 0.39125,
+      "delta": 0.0625,
+      "pct_change": 19.011406844106464
+    }
+  },
+  "comparisons": [
+    {
+      "query": "gift for someone who loves cooking",
+      "base_results": [
+        [
+          "Blackstone Tabletop Griddle, 1666, Heavy Duty Flat Top Griddle Grill Station for Camping, Camp, Outdoor, Tailgating, Tabletop \u2013 Stainless Steel Griddle with Knobs & Ignition, Black, 22 inch",
+          0.4605748653411865
+        ],
+        [
+          "BOBO BIRD Wooden Dog Cat Family Statue, Handmade Wood Decoration, Cute Puppy, Kitty and People Statue Sculpture Ornament Collectible Figurine Craft Arts for Home, Office, Living Room (Women+Puppy\uff08L\uff09)",
+          0.4408436417579651
+        ],
+        [
+          "Lodge Cast Iron Cook-It-All Kit. Five-Piece Cast Iron Set includes a Reversible Grill/Griddle 14 Inch, 6.8 Quart Bottom/Wok, Two Heavy Duty Handles, and a Tips & Tricks Booklet.",
+          0.40681254863739014
+        ],
+        [
+          "Jot & Mark Recipe Cards Floral Double Sided 4x6 50 Count (Wildflower)",
+          0.4023922085762024
+        ],
+        [
+          "Brentwood MC-109R 1.5 Cup Mini Food Chopper, Red",
+          0.3873392939567566
+        ]
+      ],
+      "fine_results": [
+        [
+          "Lodge Cast Iron Cook-It-All Kit. Five-Piece Cast Iron Set includes a Reversible Grill/Griddle 14 Inch, 6.8 Quart Bottom/Wok, Two Heavy Duty Handles, and a Tips & Tricks Booklet.",
+          0.42047548294067383
+        ],
+        [
+          "Black Cube Quick Release Cookware Fry Pan, 11-Inch",
+          0.3783368468284607
+        ],
+        [
+          "Blackstone Tabletop Griddle, 1666, Heavy Duty Flat Top Griddle Grill Station for Camping, Camp, Outdoor, Tailgating, Tabletop \u2013 Stainless Steel Griddle with Knobs & Ignition, Black, 22 inch",
+          0.36708158254623413
+        ],
+        [
+          "Brentwood MC-109R 1.5 Cup Mini Food Chopper, Red",
+          0.3648163080215454
+        ],
+        [
+          "Cook N Home Nonstick Saucepan set, 1Qt and 2Qt with glass lid, Black (02702)",
+          0.35845947265625
+        ]
+      ],
+      "base_avg_sim": 0.4195925295352936,
+      "fine_avg_sim": 0.37783393263816833
+    },
+    {
+      "query": "comfortable running shoes for men",
+      "base_results": [
+        [
+          "adidas Men's Ultraboost Personal Best Running Shoe",
+          0.6523903608322144
+        ],
+        [
+          "adidas Men's Racer Tr21 Running Shoe",
+          0.6331593990325928
+        ],
+        [
+          "Under Armour Men's Charged Assert 9 Running Shoe",
+          0.6128665208816528
+        ],
+        [
+          "SOLE Active Medium Wide Shoe Insoles - Men's Size 8/Women's Size 10",
+          0.5301345586776733
+        ],
+        [
+          "K-Swiss Men's ST329 CMF Sneaker",
+          0.5176098942756653
+        ]
+      ],
+      "fine_results": [
+        [
+          "Under Armour Men's Charged Assert 9 Running Shoe",
+          0.7014858722686768
+        ],
+        [
+          "adidas Men's Ultraboost Personal Best Running Shoe",
+          0.6861902475357056
+        ],
+        [
+          "SOLE Active Medium Wide Shoe Insoles - Men's Size 8/Women's Size 10",
+          0.6849956512451172
+        ],
+        [
+          "ASICS Men's GT-1000 10 Running Shoes",
+          0.6702386140823364
+        ],
+        [
+          "Skechers Men's GOrun Glide-Step Swirl Tech-Max Cushioning Athletic Workout Running Walking Shoes Sneaker",
+          0.663069486618042
+        ]
+      ],
+      "base_avg_sim": 0.5892320871353149,
+      "fine_avg_sim": 0.6811959743499756
+    },
+    {
+      "query": "budget friendly electronics for kids",
+      "base_results": [
+        [
+          "Volkano Wireless Bluetooth Speaker - Portable Speaker, Boom Box Small Bluetooth Speakers for Outdoor, 12W True Wireless Sound FM Radio/SD Card Reader/USB Input/AUX, 3-Inch Driver - Black, Mamba Series",
+          0.41419243812561035
+        ],
+        [
+          "Learning Clock for kids, Glow in The Dark Wall Clock for Bedroom, 12 Inch Silent Night Light Kids Wall Clock, Colorful Illuminated Telling Time Teaching Clock,Kids Room Decor (Illuminated Purple)",
+          0.39888256788253784
+        ],
+        [
+          "Convenience Concepts Designs2Go No Tools Student Desk with Charging Station and Shelves, Charcoal Gray",
+          0.39865201711654663
+        ],
+        [
+          "LIGHT FLIGHT Clear Backpack with Reinforced Padded Straps Heavy Duty PVC Transparent Backpack See Through Bookbags",
+          0.39674603939056396
+        ],
+        [
+          "Quip Adult Smart Electric Toothbrush - Sonic Toothbrush with Bluetooth & Rewards App, Travel Cover & Mirror Mount, Soft Bristles, Timer, and Metal Handle - All-Pink",
+          0.38866615295410156
+        ]
+      ],
+      "fine_results": [
+        [
+          "KNIPEX Electronics Oblique Cut",
+          0.36004602909088135
+        ],
+        [
+          "GPX PC332B Portable CD Player with Anti-Skip Protection, FM Radio and Stereo Earbuds - Black",
+          0.34505707025527954
+        ],
+        [
+          "Micro Kickboard - Maxi Original 3-Wheeled, Lean-to-Steer, Swiss-Designed Micro Scooter for Kids, Ages 5-12",
+          0.3253249526023865
+        ],
+        [
+          "Hapinest DIY Dinosaur Toy Lantern Night Light Kit - Arts and Crafts Gift for Boys or Girls Ages 6 7 8 9 10 Years Old and Up",
+          0.31981736421585083
+        ],
+        [
+          "Volkano Wireless Bluetooth Speaker - Portable Speaker, Boom Box Small Bluetooth Speakers for Outdoor, 12W True Wireless Sound FM Radio/SD Card Reader/USB Input/AUX, 3-Inch Driver - Black, Mamba Series",
+          0.3191488981246948
+        ]
+      ],
+      "base_avg_sim": 0.3994278311729431,
+      "fine_avg_sim": 0.33387887477874756
+    },
+    {
+      "query": "waterproof jacket for hiking in rain",
+      "base_results": [
+        [
+          "SANTINY Women's Fleece Lined Winter Leggings Water Resistant High Waisted Thermal Hiking Running Warm Pants Women Pockets",
+          0.5088790655136108
+        ],
+        [
+          "CRYSULLY Men's Leather Jacket-Fall Winter Vintage Motorcycle Biker Jacket with Removable Hood",
+          0.4867190420627594
+        ],
+        [
+          "Yottjacky Heated Jacket,Heated Jackets For Men Women,Mens Heated Jacket With Battery Pack 7.4V 3A 16000mh Heated Colthes",
+          0.47061043977737427
+        ],
+        [
+          "Motorcycle Covers Waterproof Outdoor Storage, 300D Oxford Heavy Duty Motorbike Cover, Motorcycle Rain Cover, Motorcycle Weather Cover XXL, Winter Motorcycle Cover (XXL: 90\" * 35\" * 50\")",
+          0.417782723903656
+        ],
+        [
+          "QBLEEV Warm Dog Coat Reflective Dog Jacket, Waterproof Dog Winter Coat Turtleneck Dog Clothes for Cold Weather, Thick Fleece Dog Snowsuit Christmas Dog Vest Pet Apparel for Small Medium Large Dogs L",
+          0.41515207290649414
+        ]
+      ],
+      "fine_results": [
+        [
+          "Yottjacky Heated Jacket,Heated Jackets For Men Women,Mens Heated Jacket With Battery Pack 7.4V 3A 16000mh Heated Colthes",
+          0.5960290431976318
+        ],
+        [
+          "Oakley Men's Oo9154 Half Jacket 2.0 XL Rectangular Sunglasses",
+          0.5377174019813538
+        ],
+        [
+          "CRYSULLY Men's Leather Jacket-Fall Winter Vintage Motorcycle Biker Jacket with Removable Hood",
+          0.5296756029129028
+        ],
+        [
+          "QBLEEV Warm Dog Coat Reflective Dog Jacket, Waterproof Dog Winter Coat Turtleneck Dog Clothes for Cold Weather, Thick Fleece Dog Snowsuit Christmas Dog Vest Pet Apparel for Small Medium Large Dogs L",
+          0.5282071828842163
+        ],
+        [
+          "andy & natalie Women's Denim Jackets Oversize Long Sleeve Basic Button Down Jean Jacket with Pockets",
+          0.49962833523750305
+        ]
+      ],
+      "base_avg_sim": 0.4598286747932434,
+      "fine_avg_sim": 0.538251519203186
+    },
+    {
+      "query": "wireless noise cancelling headphones",
+      "base_results": [
+        [
+          "Wireless Earbuds,Bluetooth 5.3 Headphones Build in Noise Cancelling, Bluetooth Earbuds With LED Power Display, Hi-Fi Stereo, Touch Control, Waterproof/Sweatproof Wireless Headphones for iOS/Android",
+          0.5007435083389282
+        ],
+        [
+          "Wireless Earbud, 2023 Sport Wireless Bluetooth 5.3 Earbud with HiFi Stereo, 75H Wireless Headphones with Noise Cancelling Mic, IP7 Waterproof Bluetooth Earphones, LED Display, Button Control, White",
+          0.4903184771537781
+        ],
+        [
+          "Trucker Bluetooth Headsets, Wireless Headset with AI Environmental Noise Cancelling & Mute Microphone, Up to 30H Talk Time, 164ft Wireless Range, Bluetooth Over Ear Headphones for PC, Computer, Skype",
+          0.48607540130615234
+        ],
+        [
+          "2 Packs for iPhone Headphones Lighting Wired Earphones (Built-in Microphone & Volume Control)[MFi Certified] Noise Isolating Headsets for iPhone 14/13/12/11/Pro/Pro Max/XR/XS/X/8/7/SE",
+          0.4211525321006775
+        ],
+        [
+          "Razer Kraken Tournament Edition THX 7.1 Surround Sound Gaming Headset: Retractable Noise Cancelling Mic - USB DAC - \u00a0for PC, PS4, PS5, Nintendo Switch, Xbox One, Xbox Series X & S, Mobile \u2013 Black",
+          0.37181103229522705
+        ]
+      ],
+      "fine_results": [
+        [
+          "Wireless Earbud, 2023 Sport Wireless Bluetooth 5.3 Earbud with HiFi Stereo, 75H Wireless Headphones with Noise Cancelling Mic, IP7 Waterproof Bluetooth Earphones, LED Display, Button Control, White",
+          0.5268077850341797
+        ],
+        [
+          "Wireless Earbuds,Bluetooth 5.3 Headphones Build in Noise Cancelling, Bluetooth Earbuds With LED Power Display, Hi-Fi Stereo, Touch Control, Waterproof/Sweatproof Wireless Headphones for iOS/Android",
+          0.49833381175994873
+        ],
+        [
+          "CXK Bluetooth Headphones Wireless Earbuds 52H Playtime Bluetooth 5.3 Neckband Bluetooth Wireless Headphones, IPX7 Waterproof HiFi Deep Bass Earphones with USB-C Fast Charging for Sport Running Gym",
+          0.47946101427078247
+        ],
+        [
+          "Trucker Bluetooth Headsets, Wireless Headset with AI Environmental Noise Cancelling & Mute Microphone, Up to 30H Talk Time, 164ft Wireless Range, Bluetooth Over Ear Headphones for PC, Computer, Skype",
+          0.47860461473464966
+        ],
+        [
+          "2 Packs for iPhone Headphones Lighting Wired Earphones (Built-in Microphone & Volume Control)[MFi Certified] Noise Isolating Headsets for iPhone 14/13/12/11/Pro/Pro Max/XR/XS/X/8/7/SE",
+          0.45527321100234985
+        ]
+      ],
+      "base_avg_sim": 0.4540202021598816,
+      "fine_avg_sim": 0.4876960813999176
+    }
+  ]
+}

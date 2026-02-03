@@ -1,0 +1,42 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# Large data files
+*.csv
+*.zip
+
+# Model files and checkpoints (store in S3 or HuggingFace Hub instead)
+*.safetensors
+*.pt
+*.pth
+*.bin
+training-checkpoints/
+
+# Backup/original files
+*_orig.*
+*_orig/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
