@@ -4,7 +4,7 @@
 
 Note: for ease of evaluation the inference service and java search service have been deployed to aws. To run locally takes multiple setup steps: database, 2 servers
 
-The `test-inference-api.sh` script provides comprehensive integration tests for the Python Inference Service API.
+The `test-inference-api.sh` script provides comprehensive integration tests for the Python Inference Service API to run see Running the Tests.
 
 ### Prerequisites
 
@@ -20,15 +20,14 @@ The `test-inference-api.sh` script provides comprehensive integration tests for 
 
 ### Running the Tests
 
-**Basic usage (localhost:8080):**
-```bash
-./test-inference-api.sh
-```
-
 **With a custom base URL:**
 ```bash
 ./test-inference-api.sh http://lm-alb-1402483560.us-east-1.elb.amazonaws.com
-./test-inference-api.sh http://192.168.1.100:8080
+```
+
+**Basic usage (localhost:8080):**
+```bash
+./test-inference-api.sh
 ```
 
 ### Test Coverage
