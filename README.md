@@ -2,7 +2,7 @@
 
 ## Running the API Tests
 
-Note: for ease of evaluation the inference service and java search service have been deployed to aws. To run locally takes multiple setup steps: database, 2 servers
+Note: for ease of evaluation the inference service and java search service have been deployed to aws. To run locally takes multiple setup steps: database, server you can skip Prerequisites to Running Tests everything is setup in aws
 
 The `test-inference-api.sh` script provides comprehensive integration tests for the Python Inference Service API to run see Running the Tests.
 
