@@ -1,0 +1,22 @@
+# Legal Fine-Tuning Demo Dependencies
+# Install: pip install -r requirements.txt
+
+# Embedding model training
+sentence-transformers>=3.3.0
+datasets>=2.14.0
+
+# CPU-only PyTorch (install separately if needed):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# Evaluation and data processing
+numpy>=1.24.0,<2.0.0
+
+# Database access (for 06_re_embed_legal_docs.py)
+psycopg2-binary==2.9.9
+boto3>=1.34.0
+
+# API testing (for 07_compare_search_results.py)
+requests>=2.31.0
+
+# Claude API for query generation (optional, set USE_CLAUDE=True in config.py)
+# anthropic>=0.18.0
