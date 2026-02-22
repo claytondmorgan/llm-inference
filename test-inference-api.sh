@@ -132,10 +132,10 @@ run_test "GET /health shows embedder_loaded" \
     "GET" "/health" "" "200"
 
 run_test "GET / returns service info" \
-    "GET" "/" "" "200" "service" "LLM Inference API with Vector Search"
+    "GET" "/" "" "200" "service" "LLM Inference API with Vector Search & Legal Document Search"
 
-run_test "GET / shows version 3.0.0" \
-    "GET" "/" "" "200" "version" "3.0.0"
+run_test "GET / shows version 5.0.0" \
+    "GET" "/" "" "200" "version" "5.0.0"
 
 # ============================================
 # EMBED ENDPOINT
