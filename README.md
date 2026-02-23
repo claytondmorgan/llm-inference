@@ -8,9 +8,21 @@
 | **Product Embeddings** | `sentence-transformers/all-MiniLM-L6-v2` | 384-dim, general-purpose (backward compatible) |
 | **Text Generation / RAG** | `microsoft/Phi-3.5-mini-instruct` (Q4_K_M GGUF) | 3.8B params, quantized for fast CPU inference via llama-cpp-python |
 
+## API Documentation (Swagger UI)
+
+Interactive API documentation is auto-generated and available at:
+
+- **Swagger UI**: [http://llm-alb-1402483560.us-east-1.elb.amazonaws.com/docs](http://llm-alb-1402483560.us-east-1.elb.amazonaws.com/docs)
+- **ReDoc**: [http://llm-alb-1402483560.us-east-1.elb.amazonaws.com/redoc](http://llm-alb-1402483560.us-east-1.elb.amazonaws.com/redoc)
+- **OpenAPI JSON**: [http://llm-alb-1402483560.us-east-1.elb.amazonaws.com/openapi.json](http://llm-alb-1402483560.us-east-1.elb.amazonaws.com/openapi.json)
+
+All 21 endpoints are grouped by domain (Legal Search, Legal RAG, Product Search, Text Generation, etc.) with descriptions, request examples, and "Try it out" support.
+
+If running locally: `http://localhost:8080/docs`
+
 ## Running the API Tests
 
-IMPORTANT! : for ease of evaluation the inference service and java search service have been deployed to aws. To run locally takes multiple setup steps: database, server you can skip Prerequisites and goto Running Tests below. Everything is setup in aws. Also after running inference tests you can test fine tuning by cd fine-tuning/ then README
+IMPORTANT! : for ease of evaluation the inference service and java search service have been deployed to aws. To run locally takes multiple setup steps: database, server you can skip Prerequisites and goto Running Tests below. Everything is setup in aws. Also after running inference tests you can test fine tuning by cd fine-tuning/ then README, or legal fine tuning by cd fine-tuning-legal/ then README
 
 The `test-inference-api.sh` script provides comprehensive integration tests for the Python Inference Service API. The `test-legal-api.sh` script tests the legal document search endpoints. To run see Running the Tests.
 
@@ -40,6 +52,18 @@ The `test-inference-api.sh` script provides comprehensive integration tests for 
 ./test-inference-api.sh
 ./test-legal-api.sh
 ```
+
+**Verbose mode (`-v` / `--verbose`):**
+
+Both test scripts support a verbose flag that shows per-test curl commands, response latency and size, a performance summary, and an AWS cost estimate.
+
+```bash
+./test-inference-api.sh http://llm-alb-1402483560.us-east-1.elb.amazonaws.com -v
+./test-legal-api.sh -v
+./test-legal-api.sh --verbose http://llm-alb-1402483560.us-east-1.elb.amazonaws.com
+```
+
+The flag can appear before or after the base URL. Without `-v`, output remains the same compact format as before.
 
 ### Deploying to AWS
 
@@ -125,3 +149,57 @@ Failed: 0
 
 All tests passed!
 ```
+
+With `-v`, each test additionally shows the curl command, response latency, and response size. A performance summary and AWS cost estimate are appended at the end:
+
+```
+==============================================
+Performance Summary
+==============================================
+  Total requests:     51
+  Total data recv:    42.3 KB
+  Test wall time:     38s
+  Avg latency:        312ms
+  Min latency:        18ms
+  Max latency:        4521ms
+
+==============================================
+AWS Cost Estimate (for test duration only)
+==============================================
+  Duration:           38s (0.010556 hours)
+  Data transferred:   42.3 KB (0.000000039 GB)
+
+  ALB (us-east-1):    $0.0225/hr x 0.010556hr = $0.000238
+  Compute (by instance type for test duration):
+    t3.medium:        $0.0416/hr x 0.010556hr = $0.000439
+    g4dn.xlarge:      $0.5260/hr x 0.010556hr = $0.005552
+
+  Estimated total:    $0.0007 - $0.0058
+```
+
+## Fine-Tuning
+
+### Product Fine-Tuning (`fine-tuning/`)
+
+Demo pipeline for fine-tuning the product embedding model. See `fine-tuning/README.md` for details.
+
+### Legal Fine-Tuning (`fine-tuning-legal/`)
+
+Demo pipeline for fine-tuning the legal-domain ModernBERT embedding model. The pipeline includes:
+
+1. **Extract** legal documents from `legal-documents.csv`
+2. **Generate** training data (query-passage pairs with hard negatives)
+3. **Baseline evaluation** of the pre-trained model
+4. **Fine-tune** with contrastive learning (MultipleNegativesRankingLoss)
+5. **Evaluate** improvement against baseline
+6. **Re-embed** legal documents with the fine-tuned model
+7. **Compare** search results before/after fine-tuning
+
+```bash
+cd fine-tuning-legal
+pip install -r requirements.txt
+python demo.py          # Run the full pipeline
+python demo.py --steps 1,2,3   # Run specific steps
+```
+
+See `fine-tuning-legal/README.md` for full details and configuration.

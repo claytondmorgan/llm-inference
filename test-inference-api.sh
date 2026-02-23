@@ -283,11 +283,11 @@ else
     ((FAIL++))
 fi
 
-run_test "POST /embed with empty text returns 400" \
-    "POST" "/embed" '{"text": ""}' "400"
+run_test "POST /embed with empty text returns 422" \
+    "POST" "/embed" '{"text": ""}' "422"
 
-run_test "POST /embed with missing text returns 400" \
-    "POST" "/embed" '{"wrong_field": "test"}' "400"
+run_test "POST /embed with missing text returns 422" \
+    "POST" "/embed" '{"wrong_field": "test"}' "422"
 
 # ============================================
 # TEXT GENERATION ENDPOINT

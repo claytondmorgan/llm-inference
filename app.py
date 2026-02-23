@@ -30,51 +30,66 @@ legal_embedder = None  # ModernBERT legal embedder (768-dim)
 # ============================================================
 
 class GenerateRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, description="Input text prompt")
-    max_new_tokens: int = Field(default=100, ge=1, le=500)
-    temperature: float = Field(default=0.7, ge=0.1, le=2.0)
+    prompt: str = Field(..., min_length=1, description="Input text prompt for generation")
+    max_new_tokens: int = Field(default=100, ge=1, le=500, description="Maximum tokens to generate")
+    temperature: float = Field(default=0.7, ge=0.1, le=2.0, description="Sampling temperature (lower = more focused)")
+
+    model_config = {"json_schema_extra": {"examples": [{"prompt": "What is employment law?", "max_new_tokens": 100, "temperature": 0.7}]}}
 
 class GenerateResponse(BaseModel):
-    generated_text: str
-    model: str
+    generated_text: str = Field(description="Generated text from Phi-3.5 Mini")
+    model: str = Field(description="Model identifier used for generation")
+
+class EmbedRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Text to generate an embedding for")
+
+    model_config = {"json_schema_extra": {"examples": [{"text": "Wireless bluetooth headphones with noise cancellation"}]}}
 
 class DocumentRequest(BaseModel):
-    content: str = Field(..., min_length=1, description="Document text to store")
-    metadata: dict = Field(default={}, description="Optional metadata")
+    content: str = Field(..., min_length=1, description="Document text to store and embed")
+    metadata: dict = Field(default={}, description="Optional key-value metadata")
+
+    model_config = {"json_schema_extra": {"examples": [{"content": "Wireless bluetooth headphones with noise cancellation", "metadata": {"category": "Electronics"}}]}}
 
 class SearchRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="Search query")
-    top_k: int = Field(default=5, ge=1, le=20, description="Number of results")
+    query: str = Field(..., min_length=1, description="Natural language search query")
+    top_k: int = Field(default=5, ge=1, le=20, description="Number of results to return")
+
+    model_config = {"json_schema_extra": {"examples": [{"query": "noise cancelling headphones", "top_k": 5}]}}
 
 class SearchResult(BaseModel):
-    id: int
-    content: str
-    metadata: dict
-    similarity: float
+    id: int = Field(description="Document ID")
+    content: str = Field(description="Document text content")
+    metadata: dict = Field(description="Document metadata")
+    similarity: float = Field(description="Cosine similarity score (0-1)")
 
 class RAGRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="User question")
-    top_k: int = Field(default=3, ge=1, le=10)
-    max_new_tokens: int = Field(default=200, ge=1, le=500)
+    query: str = Field(..., min_length=1, description="Natural language question to answer")
+    top_k: int = Field(default=3, ge=1, le=10, description="Number of source documents to retrieve")
+    max_new_tokens: int = Field(default=200, ge=1, le=500, description="Maximum tokens to generate in the answer")
+
+    model_config = {"json_schema_extra": {"examples": [{"query": "What products are good for working from home?", "top_k": 3, "max_new_tokens": 200}]}}
 
 class IngestedSearchRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="Search query")
-    top_k: int = Field(default=10, ge=1, le=50)
-    category: Optional[str] = Field(default=None, description="Filter by category")
-    search_field: str = Field(default="content", description="'content' or 'title'")
+    query: str = Field(..., min_length=1, description="Natural language search query")
+    top_k: int = Field(default=10, ge=1, le=50, description="Number of results to return")
+    category: Optional[str] = Field(default=None, description="Filter by product category")
+    search_field: str = Field(default="content", description="Embedding field to search: 'content' or 'title'")
+
+    model_config = {"json_schema_extra": {"examples": [{"query": "comfortable running shoes", "top_k": 5, "search_field": "content"}]}}
 
 class IngestedSearchResult(BaseModel):
-    id: int
-    title: Optional[str]
-    description: Optional[str]
-    category: Optional[str]
-    tags: Optional[list]
-    raw_data: dict
-    similarity: float
+    id: int = Field(description="Record ID")
+    title: Optional[str] = Field(description="Product title")
+    description: Optional[str] = Field(description="Product description")
+    category: Optional[str] = Field(description="Product category")
+    tags: Optional[list] = Field(description="Product tags")
+    raw_data: dict = Field(description="Full product record data")
+    similarity: float = Field(description="Cosine similarity score (0-1)")
 
 class RAGResponse(BaseModel):
-    answer: str
-    sources: List[IngestedSearchResult]
+    answer: str = Field(description="Generated answer from Phi-3.5 Mini based on retrieved sources")
+    sources: List[IngestedSearchResult] = Field(description="Source product records used to generate the answer")
 
 
 # ============================================================
@@ -82,56 +97,64 @@ class RAGResponse(BaseModel):
 # ============================================================
 
 class LegalDocument(BaseModel):
-    doc_id: str
-    doc_type: str  # case_law, statute, regulation, practice_guide, headnote
-    title: str
-    citation: Optional[str] = None
-    jurisdiction: Optional[str] = None
-    date_decided: Optional[str] = None
-    court: Optional[str] = None
-    content: str
-    headnotes: Optional[str] = None
-    practice_area: Optional[str] = None
-    status: str = "good_law"
+    doc_id: str = Field(description="Unique document identifier (e.g., 'case-001')")
+    doc_type: str = Field(description="Document type: case_law, statute, regulation, practice_guide, headnote")
+    title: str = Field(description="Document title or case name")
+    citation: Optional[str] = Field(default=None, description="Legal citation (e.g., '384 U.S. 436 (1966)')")
+    jurisdiction: Optional[str] = Field(default=None, description="Jurisdiction (e.g., 'CA', 'US_Supreme_Court')")
+    date_decided: Optional[str] = Field(default=None, description="Date decided (YYYY-MM-DD)")
+    court: Optional[str] = Field(default=None, description="Court name")
+    content: str = Field(description="Full document text content")
+    headnotes: Optional[str] = Field(default=None, description="Document headnotes or key points")
+    practice_area: Optional[str] = Field(default=None, description="Practice area: employment, constitutional_law, criminal")
+    status: str = Field(default="good_law", description="Shepard's-style status: good_law, questioned, overruled")
 
 class LegalSearchRequest(BaseModel):
-    query: str = Field(..., min_length=1)
-    top_k: int = Field(default=10, ge=1, le=100)
-    search_field: str = Field(default="content")  # content, title, headnotes, hybrid
-    jurisdiction: Optional[str] = None
-    doc_type: Optional[str] = None
-    practice_area: Optional[str] = None
-    status_filter: Optional[str] = None  # "exclude_overruled" to filter out overruled cases
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
+    query: str = Field(..., min_length=1, description="Natural language legal research query")
+    top_k: int = Field(default=10, ge=1, le=100, description="Maximum number of results to return")
+    search_field: str = Field(default="content", description="Search mode: 'content', 'title', 'headnotes', or 'hybrid' (RRF)")
+    jurisdiction: Optional[str] = Field(default=None, description="Filter by jurisdiction (e.g., 'CA', 'NY', 'US_Supreme_Court', 'Federal_9th_Circuit')")
+    doc_type: Optional[str] = Field(default=None, description="Filter by type: 'case_law', 'statute', 'regulation', 'practice_guide'")
+    practice_area: Optional[str] = Field(default=None, description="Filter by area: 'employment', 'constitutional_law', 'criminal'")
+    status_filter: Optional[str] = Field(default=None, description="Set to 'exclude_overruled' to filter out overruled cases (Shepard's-style)")
+    date_from: Optional[str] = Field(default=None, description="Filter: earliest date (YYYY-MM-DD)")
+    date_to: Optional[str] = Field(default=None, description="Filter: latest date (YYYY-MM-DD)")
+
+    model_config = {"json_schema_extra": {"examples": [
+        {"query": "employment discrimination reasonable accommodation", "top_k": 5, "search_field": "hybrid", "status_filter": "exclude_overruled"},
+    ]}}
 
 class LegalSearchResult(BaseModel):
-    id: int
-    doc_id: str
-    doc_type: str
-    title: str
-    citation: Optional[str]
-    jurisdiction: Optional[str]
-    court: Optional[str]
-    practice_area: Optional[str]
-    status: Optional[str]
-    content_snippet: str
-    similarity: float
-    search_method: str  # "semantic", "keyword", or "hybrid"
+    id: int = Field(description="Database row ID")
+    doc_id: str = Field(description="Document identifier")
+    doc_type: str = Field(description="Document type")
+    title: str = Field(description="Document title or case name")
+    citation: Optional[str] = Field(description="Legal citation")
+    jurisdiction: Optional[str] = Field(description="Jurisdiction")
+    court: Optional[str] = Field(description="Court name")
+    practice_area: Optional[str] = Field(description="Practice area")
+    status: Optional[str] = Field(description="Shepard's-style status")
+    content_snippet: str = Field(description="First 500 characters of document content")
+    similarity: float = Field(description="Relevance score (cosine similarity for semantic, RRF for hybrid)")
+    search_method: str = Field(description="Search method used: 'semantic', 'keyword', or 'hybrid'")
 
 class LegalRAGRequest(BaseModel):
-    query: str = Field(..., min_length=1)
-    top_k: int = Field(default=5, ge=1, le=20)
-    jurisdiction: Optional[str] = None
-    practice_area: Optional[str] = None
-    exclude_overruled: bool = True
+    query: str = Field(..., min_length=1, description="Legal research question to answer with citations")
+    top_k: int = Field(default=3, ge=1, le=20, description="Number of source authorities to retrieve")
+    jurisdiction: Optional[str] = Field(default=None, description="Filter sources by jurisdiction")
+    practice_area: Optional[str] = Field(default=None, description="Filter sources by practice area")
+    exclude_overruled: bool = Field(default=True, description="Exclude overruled authorities (Shepard's-style filtering)")
+
+    model_config = {"json_schema_extra": {"examples": [
+        {"query": "What are the requirements for filing a wrongful termination claim?", "top_k": 3, "jurisdiction": "CA"},
+    ]}}
 
 class LegalRAGResponse(BaseModel):
-    query: str
-    answer: str
-    sources: List[LegalSearchResult]
-    citations_used: List[str]
-    faithfulness_note: str
+    query: str = Field(description="Original research query")
+    answer: str = Field(description="Generated answer with bracketed source citations (e.g., [1], [2])")
+    sources: List[LegalSearchResult] = Field(description="Source authorities used to generate the answer")
+    citations_used: List[str] = Field(description="List of legal citations referenced in the answer")
+    faithfulness_note: str = Field(description="Assessment of source grounding (e.g., 'Answer references 3 source(s) out of 3 retrieved.')")
 
 
 # ============================================================
@@ -252,11 +275,46 @@ async def lifespan(app: FastAPI):
 # FastAPI App
 # ============================================================
 
+tags_metadata = [
+    {"name": "Health & Info", "description": "Service health checks and API metadata"},
+    {"name": "Text Generation", "description": "Generate text using Phi-3.5 Mini (3.8B params, GGUF Q4_K_M quantized, CPU inference via llama-cpp-python)"},
+    {"name": "Embeddings", "description": "Generate 384-dimensional product embeddings using all-MiniLM-L6-v2"},
+    {"name": "Document Management", "description": "CRUD operations for the documents vector store"},
+    {"name": "Product Search", "description": "Semantic vector search over ingested product records (1,013 Amazon products, dual 384-dim embeddings for title and content)"},
+    {"name": "Product RAG", "description": "Retrieval-Augmented Generation over the product catalog using Phi-3.5 Mini"},
+    {"name": "Legal Search", "description": "Semantic, keyword, and hybrid search over 58 legal documents using 768-dim ModernBERT embeddings with HNSW and GIN indexes"},
+    {"name": "Legal RAG", "description": "Legal Retrieval-Augmented Generation with source citation tracking, faithfulness verification, and Shepard's-style status filtering"},
+    {"name": "Legal Documents", "description": "Legal document ingestion, retrieval, and count endpoints"},
+    {"name": "Ingestion", "description": "Ingestion job tracking and statistics for the product data pipeline"},
+    {"name": "Debug", "description": "Debug and diagnostic endpoints for troubleshooting"},
+]
+
 app = FastAPI(
     title="LLM Inference API with Vector Search & Legal Document Search",
-    description="Hugging Face model inference with pgvector RAG capabilities, including legal document semantic/hybrid search. Uses Phi-3.5 Mini for generation and ModernBERT legal embeddings.",
+    description="""## Three-Model Architecture
+
+| Model | Purpose | Dimensions |
+|---|---|---|
+| **Phi-3.5 Mini** (GGUF Q4_K_M) | Text generation and RAG | 3.8B params, CPU-only |
+| **all-MiniLM-L6-v2** | Product embeddings | 384-dim |
+| **ModernBERT Legal** (freelawproject) | Legal document embeddings | 768-dim |
+
+## Key Features
+- **Semantic search** with pgvector HNSW indexes and cosine similarity
+- **Hybrid search** combining semantic + full-text search via Reciprocal Rank Fusion (RRF)
+- **RAG pipelines** for both products and legal documents with source citations
+- **Legal document search** with jurisdiction, document type, practice area, and Shepard's-style status filtering
+- **58 legal documents** across employment, constitutional, and criminal law
+- **1,013 product records** from Amazon product catalog with dual embeddings
+
+## Infrastructure
+- **Compute**: AWS ECS Fargate (16 vCPU / 32 GB)
+- **Database**: PostgreSQL with pgvector extension
+- **Indexes**: HNSW (m=16, ef_construction=64) for vector search, GIN for full-text search
+""",
     version="5.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    openapi_tags=tags_metadata
 )
 
 
@@ -264,7 +322,9 @@ app = FastAPI(
 # Core Endpoints
 # ============================================================
 
-@app.get("/health")
+@app.get("/health", tags=["Health & Info"], summary="Health check",
+    description="Returns service health status including model loading state, database connectivity, and legal document count.",
+    response_description="Health status object")
 async def health_check():
     """Health check endpoint."""
     db_status = "unknown"
@@ -295,7 +355,9 @@ async def health_check():
     }
 
 
-@app.get("/")
+@app.get("/", tags=["Health & Info"], summary="Service info",
+    description="Returns service name, version, and a directory of all available API endpoints.",
+    response_description="Service metadata and endpoint directory")
 async def root():
     """Root endpoint."""
     return {
@@ -326,20 +388,19 @@ async def root():
 # Embedding Generation (for Java service delegation)
 # ============================================================
 
-@app.post("/embed")
-async def generate_embedding(request: dict):
-    """Generate embedding vector for text.
+@app.post("/embed", tags=["Embeddings"], summary="Generate product embedding",
+    description="""Generate a 384-dimensional embedding vector for the given text using all-MiniLM-L6-v2.
 
-    This endpoint is used by the Java search service to delegate
-    embedding generation to Python, ensuring a single source of truth
-    for the embedding model.
-    """
+Used by the Java search service to delegate embedding generation to Python, ensuring a single source of truth for the embedding model.
+
+**Note**: This produces product embeddings (384-dim). Legal endpoints use ModernBERT (768-dim) internally.""",
+    response_description="Embedding vector with dimensions and model info")
+async def generate_embedding(request: EmbedRequest):
+    """Generate embedding vector for text."""
     if embedder is None:
         raise HTTPException(status_code=503, detail="Embedding model not loaded")
 
-    text = request.get("text", "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="text field is required")
+    text = request.text.strip()
 
     try:
         embedding = get_embedding(text)
@@ -359,7 +420,12 @@ async def generate_embedding(request: dict):
 # Text Generation
 # ============================================================
 
-@app.post("/generate", response_model=GenerateResponse)
+@app.post("/generate", response_model=GenerateResponse, tags=["Text Generation"],
+    summary="Generate text from prompt",
+    description="""Generate text using Phi-3.5 Mini (3.8B params, GGUF Q4_K_M quantized).
+
+Uses chat completion format with the prompt as user message. Runs on CPU via llama-cpp-python with 16 threads.""",
+    response_description="Generated text and model identifier")
 async def generate_text(request: GenerateRequest):
     """Generate text from prompt."""
     if llm is None:
@@ -389,7 +455,9 @@ async def generate_text(request: GenerateRequest):
 # Document Management (original documents table)
 # ============================================================
 
-@app.post("/documents")
+@app.post("/documents", tags=["Document Management"], summary="Add a document",
+    description="Add a single document to the vector store. The text is automatically embedded using all-MiniLM-L6-v2 (384-dim).",
+    response_description="Created document ID")
 async def add_document(request: DocumentRequest):
     """Add a document with its embedding to the database."""
     if embedder is None:
@@ -422,7 +490,9 @@ async def add_document(request: DocumentRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/documents/batch")
+@app.post("/documents/batch", tags=["Document Management"], summary="Add documents in batch",
+    description="Add multiple documents at once. Each document is embedded individually.",
+    response_description="List of created document IDs")
 async def add_documents_batch(documents: List[DocumentRequest]):
     """Add multiple documents at once."""
     if embedder is None:
@@ -456,7 +526,9 @@ async def add_documents_batch(documents: List[DocumentRequest]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/documents/count")
+@app.get("/documents/count", tags=["Document Management"], summary="Get document count",
+    description="Returns the total number of documents in the vector store.",
+    response_description="Document count")
 async def get_document_count():
     """Get the total number of documents."""
     try:
@@ -472,7 +544,9 @@ async def get_document_count():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/documents/{doc_id}")
+@app.delete("/documents/{doc_id}", tags=["Document Management"], summary="Delete a document",
+    description="Delete a document by its ID. Returns 404 if document does not exist.",
+    response_description="Deletion confirmation")
 async def delete_document(doc_id: int):
     """Delete a document by ID."""
     try:
@@ -499,7 +573,10 @@ async def delete_document(doc_id: int):
 # Document Search (original documents table)
 # ============================================================
 
-@app.post("/search", response_model=List[SearchResult])
+@app.post("/search", response_model=List[SearchResult], tags=["Product Search"],
+    summary="Search documents (legacy table)",
+    description="Semantic vector search over the original documents table using cosine similarity on 384-dim embeddings.",
+    response_description="Ranked list of matching documents with similarity scores")
 async def search_documents(request: SearchRequest):
     """Search for similar documents."""
     if embedder is None:
@@ -549,7 +626,14 @@ async def search_documents(request: SearchRequest):
 # RAG (Retrieval-Augmented Generation)
 # ============================================================
 
-@app.post("/rag", response_model=RAGResponse)
+@app.post("/rag", response_model=RAGResponse, tags=["Product RAG"],
+    summary="Product RAG query",
+    description="""Retrieval-Augmented Generation over the product catalog.
+
+1. Embeds the query using all-MiniLM-L6-v2 (384-dim)
+2. Retrieves the top-k most similar products from ingested_records
+3. Generates an answer using Phi-3.5 Mini with the retrieved products as context""",
+    response_description="Generated answer with source product records")
 async def rag_query(request: RAGRequest):
     """RAG: Retrieve from ingested products and generate answer."""
     if llm is None or embedder is None:
@@ -626,7 +710,12 @@ async def rag_query(request: RAGRequest):
 # Ingested Records Search
 # ============================================================
 
-@app.post("/search/records", response_model=List[IngestedSearchResult])
+@app.post("/search/records", response_model=List[IngestedSearchResult], tags=["Product Search"],
+    summary="Search product records",
+    description="""Semantic vector search over 1,013 ingested Amazon product records.
+
+Supports searching by `content` (description embedding) or `title` (title embedding), both 384-dim. Optional category filter for faceted search.""",
+    response_description="Ranked list of matching products with similarity scores")
 async def search_ingested_records(request: IngestedSearchRequest):
     """Search ingested records by vector similarity."""
     if embedder is None:
@@ -693,7 +782,9 @@ async def search_ingested_records(request: IngestedSearchRequest):
 # Ingestion Management
 # ============================================================
 
-@app.get("/ingestion/jobs")
+@app.get("/ingestion/jobs", tags=["Ingestion"], summary="List ingestion jobs",
+    description="List recent product data ingestion jobs with status, row counts, and timestamps.",
+    response_description="List of ingestion job records")
 async def list_ingestion_jobs(limit: int = 20):
     """List recent ingestion jobs."""
     try:
@@ -721,7 +812,9 @@ async def list_ingestion_jobs(limit: int = 20):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/ingestion/stats")
+@app.get("/ingestion/stats", tags=["Ingestion"], summary="Get ingestion statistics",
+    description="Returns aggregate statistics: total records, files, categories, and ingestion date range.",
+    response_description="Ingestion statistics summary")
 async def get_ingestion_stats():
     """Get overall ingestion statistics."""
     try:
@@ -751,7 +844,9 @@ async def get_ingestion_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/ingestion/records/count")
+@app.get("/ingestion/records/count", tags=["Ingestion"], summary="Get ingested record count",
+    description="Returns the total number of active ingested product records.",
+    response_description="Record count")
 async def get_ingested_record_count():
     """Get count of ingested records."""
     try:
@@ -771,7 +866,9 @@ async def get_ingested_record_count():
 # Debug Endpoints
 # ============================================================
 
-@app.get("/debug/documents")
+@app.get("/debug/documents", tags=["Debug"], summary="Debug document embeddings",
+    description="Check document count, embedding dimensions, and sample content for troubleshooting.",
+    response_description="Debug information about stored documents")
 async def debug_documents():
     """Debug: Check document embeddings."""
     try:
@@ -803,7 +900,9 @@ async def debug_documents():
         return {"error": str(e)}
 
 
-@app.get("/debug/search-test")
+@app.get("/debug/search-test", tags=["Debug"], summary="Test vector search",
+    description="Run a test vector search with a hardcoded query to verify the search pipeline is working end-to-end.",
+    response_description="Test search results with similarity scores")
 async def debug_search_test():
     """Debug: Test vector search directly."""
     try:
@@ -850,7 +949,15 @@ async def debug_search_test():
 # Legal Document Endpoints
 # ============================================================
 
-@app.post("/legal/ingest")
+@app.post("/legal/ingest", tags=["Legal Documents"], summary="Ingest legal documents",
+    description="""Ingest legal-documents.csv into the legal_documents table.
+
+Drops and recreates the table, then processes all 58 documents:
+- Generates **triple embeddings** (content, title, headnote) using ModernBERT (768-dim)
+- Creates HNSW indexes (m=16, ef_construction=64) for each embedding column
+- Creates GIN index on tsvector column for full-text search
+- Processes documents in batches of 10""",
+    response_description="Ingestion summary with document count")
 async def ingest_legal_documents():
     """Ingest legal-documents.csv into the legal_documents table."""
     if legal_embedder is None:
@@ -1001,7 +1108,23 @@ def _build_legal_filters(request):
     return where_clause, params
 
 
-@app.post("/legal/search", response_model=List[LegalSearchResult])
+@app.post("/legal/search", response_model=List[LegalSearchResult], tags=["Legal Search"],
+    summary="Search legal documents",
+    description="""Search 58 legal documents using semantic, keyword, or hybrid search.
+
+**Search modes** (via `search_field`):
+- `content` — Cosine similarity on 768-dim content embeddings (HNSW index)
+- `title` — Cosine similarity on 768-dim title embeddings
+- `headnotes` — Cosine similarity on 768-dim headnote embeddings
+- `hybrid` — **Reciprocal Rank Fusion** combining semantic (content) + full-text keyword search (GIN index)
+
+**Filters**:
+- `jurisdiction` — e.g., CA, NY, US_Supreme_Court, Federal_9th_Circuit
+- `doc_type` — case_law, statute, regulation, practice_guide
+- `practice_area` — employment, constitutional_law, criminal
+- `status_filter` — Set to `exclude_overruled` for Shepard's-style filtering
+- `date_from` / `date_to` — Date range filtering""",
+    response_description="Ranked list of matching legal documents with similarity scores and search method")
 async def search_legal_documents(request: LegalSearchRequest):
     """Search legal documents with semantic, keyword, or hybrid search and metadata filters."""
     if legal_embedder is None:
@@ -1121,7 +1244,19 @@ async def search_legal_documents(request: LegalSearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/legal/rag", response_model=LegalRAGResponse)
+@app.post("/legal/rag", response_model=LegalRAGResponse, tags=["Legal RAG"],
+    summary="Legal RAG with citations",
+    description="""Legal Retrieval-Augmented Generation with source citation tracking.
+
+**Pipeline**:
+1. Hybrid search retrieves the top-k most relevant legal authorities
+2. Assembles numbered context with citations, jurisdiction, and document type
+3. Phi-3.5 Mini generates an answer using a **legal publisher system prompt** requiring bracketed citations
+4. Extracts citation references from the answer and maps them to source documents
+5. Returns faithfulness assessment (how many sources were actually cited)
+
+**Quality controls**: Overruled authorities excluded by default. System prompt requires `[NEEDS REVIEW]` prefix for uncertain interpretations and `Insufficient sources` when context is inadequate.""",
+    response_description="Generated legal answer with citations, source documents, and faithfulness assessment")
 async def legal_rag_query(request: LegalRAGRequest):
     """Legal RAG: retrieve relevant authorities then generate a cited answer."""
     if llm is None or legal_embedder is None:
@@ -1174,8 +1309,8 @@ Provide your answer with citations:"""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=300,
-            temperature=0.7,
+            max_tokens=150,
+            temperature=0.3,
         )
 
         answer = output["choices"][0]["message"]["content"]
@@ -1210,7 +1345,9 @@ Provide your answer with citations:"""
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/legal/documents/count")
+@app.get("/legal/documents/count", tags=["Legal Documents"], summary="Get legal document count",
+    description="Returns the total number of legal documents, grouped by document type (case_law, statute, regulation, practice_guide).",
+    response_description="Total count and breakdown by document type")
 async def get_legal_document_count():
     """Get total count of legal documents, grouped by type."""
     try:
@@ -1238,7 +1375,9 @@ async def get_legal_document_count():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/legal/documents/{doc_id}")
+@app.get("/legal/documents/{doc_id}", tags=["Legal Documents"], summary="Get legal document by ID",
+    description="Retrieve a specific legal document by its doc_id (e.g., 'case-001'). Returns full document including content, citation, jurisdiction, and status.",
+    response_description="Full legal document record")
 async def get_legal_document(doc_id: str):
     """Get a specific legal document by doc_id."""
     try:
