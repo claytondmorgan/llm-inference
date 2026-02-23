@@ -213,9 +213,115 @@ def run_migration():
             print(f"  ⚠ {index_name} already exists")
 
     # --------------------------------------------------
-    # Step 7: Verify migration
+    # Step 7: Create legal_documents table
     # --------------------------------------------------
-    print("\n[7/7] Verifying migration...")
+    print("\n[7/10] Creating legal_documents table (768-dim for ModernBERT legal embeddings)...")
+    cur.execute("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'legal_documents'
+        );
+    """)
+    table_exists = cur.fetchone()[0]
+
+    if table_exists:
+        # Check if existing table has 384-dim columns that need upgrading to 768
+        cur.execute("""
+            SELECT atttypmod FROM pg_attribute
+            JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
+            WHERE pg_class.relname = 'legal_documents'
+              AND pg_attribute.attname = 'content_embedding'
+        """)
+        row = cur.fetchone()
+        if row and row[0] != 768:
+            print("  ⚠ Table has old 384-dim columns, dropping and recreating with 768-dim...")
+            cur.execute("DROP TABLE legal_documents CASCADE;")
+            table_exists = False
+        else:
+            print("  ⚠ Table already exists with correct dimensions, skipping creation")
+
+    if not table_exists:
+        cur.execute("""
+            CREATE TABLE legal_documents (
+                id SERIAL PRIMARY KEY,
+                doc_id VARCHAR(50) UNIQUE NOT NULL,
+                doc_type VARCHAR(50) NOT NULL,
+                title TEXT NOT NULL,
+                citation VARCHAR(200),
+                jurisdiction VARCHAR(100),
+                date_decided DATE,
+                court VARCHAR(200),
+                content TEXT NOT NULL,
+                headnotes TEXT,
+                practice_area VARCHAR(100),
+                status VARCHAR(50) DEFAULT 'good_law',
+                title_embedding vector(768),
+                content_embedding vector(768),
+                headnote_embedding vector(768),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                title_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, ''))) STORED,
+                content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED
+            );
+        """)
+        print("  ✓ legal_documents table created (768-dim embeddings)")
+
+    # --------------------------------------------------
+    # Step 8: Create HNSW indexes for legal_documents
+    # --------------------------------------------------
+    print("\n[8/10] Creating legal document vector indexes (HNSW)...")
+
+    legal_hnsw_indexes = [
+        ("idx_legal_title_hnsw", "CREATE INDEX idx_legal_title_hnsw ON legal_documents USING hnsw (title_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);"),
+        ("idx_legal_content_hnsw", "CREATE INDEX idx_legal_content_hnsw ON legal_documents USING hnsw (content_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);"),
+        ("idx_legal_headnote_hnsw", "CREATE INDEX idx_legal_headnote_hnsw ON legal_documents USING hnsw (headnote_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);"),
+    ]
+
+    for index_name, create_sql in legal_hnsw_indexes:
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE indexname = %s
+            );
+        """, (index_name,))
+        if not cur.fetchone()[0]:
+            cur.execute(create_sql)
+            print(f"  ✓ {index_name} created")
+        else:
+            print(f"  ⚠ {index_name} already exists")
+
+    # --------------------------------------------------
+    # Step 9: Create GIN + B-tree indexes for legal_documents
+    # --------------------------------------------------
+    print("\n[9/10] Creating legal document FTS and metadata indexes...")
+
+    legal_indexes = [
+        ("idx_legal_title_fts", "CREATE INDEX idx_legal_title_fts ON legal_documents USING gin(title_tsv);"),
+        ("idx_legal_content_fts", "CREATE INDEX idx_legal_content_fts ON legal_documents USING gin(content_tsv);"),
+        ("idx_legal_jurisdiction", "CREATE INDEX idx_legal_jurisdiction ON legal_documents(jurisdiction);"),
+        ("idx_legal_doc_type", "CREATE INDEX idx_legal_doc_type ON legal_documents(doc_type);"),
+        ("idx_legal_practice_area", "CREATE INDEX idx_legal_practice_area ON legal_documents(practice_area);"),
+        ("idx_legal_status", "CREATE INDEX idx_legal_status ON legal_documents(status);"),
+        ("idx_legal_date", "CREATE INDEX idx_legal_date ON legal_documents(date_decided);"),
+    ]
+
+    for index_name, create_sql in legal_indexes:
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE indexname = %s
+            );
+        """, (index_name,))
+        if not cur.fetchone()[0]:
+            cur.execute(create_sql)
+            print(f"  ✓ {index_name} created")
+        else:
+            print(f"  ⚠ {index_name} already exists")
+
+    # --------------------------------------------------
+    # Step 10: Verify migration
+    # --------------------------------------------------
+    print("\n[10/10] Verifying migration...")
 
     # Check all tables exist
     cur.execute("""
