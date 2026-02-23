@@ -59,7 +59,7 @@ Both test scripts support a verbose flag that shows per-test curl commands, resp
 
 ```bash
 ./test-inference-api.sh http://llm-alb-1402483560.us-east-1.elb.amazonaws.com -v
-./test-legal-api.sh -v
+./test-legal-api.sh http://llm-alb-1402483560.us-east-1.elb.amazonaws.com -v
 ./test-legal-api.sh --verbose http://llm-alb-1402483560.us-east-1.elb.amazonaws.com
 ```
 
