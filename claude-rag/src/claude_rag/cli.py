@@ -7,6 +7,7 @@ Usage::
     python -m claude_rag search <query>  -- Search the RAG database
     python -m claude_rag watch           -- Start file watcher daemon
     python -m claude_rag serve           -- Start MCP server (stdio)
+    python -m claude_rag worker          -- Start hook queue worker
 """
 
 from __future__ import annotations
@@ -254,6 +255,32 @@ def _cmd_serve() -> None:
     asyncio.run(server_main())
 
 
+def _cmd_worker(config: Config, once: bool) -> None:
+    """Start the hook queue worker.
+
+    Drains events enqueued by Claude Code hooks and ingests them through
+    the RAG pipeline.
+
+    Args:
+        config: The application configuration instance.
+        once: If ``True``, drain the queue then exit.  Otherwise poll
+            continuously until interrupted.
+    """
+    from claude_rag.hooks.worker import HookWorker
+
+    worker = HookWorker(config)
+
+    if once:
+        count = worker.drain()
+        print(f"Processed {count} item(s).")
+    else:
+        print("Hook worker running. Press Ctrl+C to stop.")
+        try:
+            worker.run()
+        except KeyboardInterrupt:
+            print("\nWorker stopped.")
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -320,6 +347,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Start MCP server in stdio mode",
     )
 
+    # worker
+    worker_parser = subparsers.add_parser(
+        "worker",
+        help="Start hook queue worker (processes events from Claude Code hooks)",
+    )
+    worker_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Drain the queue once then exit (don't poll)",
+    )
+
     return parser
 
 
@@ -349,6 +387,8 @@ def main() -> None:
         _cmd_watch(config)
     elif args.command == "serve":
         _cmd_serve()
+    elif args.command == "worker":
+        _cmd_worker(config, args.once)
     else:
         parser.print_help()
         sys.exit(1)

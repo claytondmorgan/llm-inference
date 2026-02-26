@@ -37,8 +37,10 @@ claude-rag/
 │   ├── embeddings/         # Abstract provider + local wrapper
 │   ├── ingestion/          # Parser, chunker, watcher, pipeline
 │   ├── search/             # Semantic, keyword, hybrid, formatter
+│   ├── hooks/              # Claude Code hook handlers + async queue
 │   ├── mcp_server/         # MCP server exposing rag_search tool
-│   └── cli.py              # Health check, manual ingest/search
+│   └── cli.py              # Health check, manual ingest/search/worker
+├── demos/                  # Poker app demo
 └── tests/                  # Pytest suite with fixtures
 ```
 
@@ -49,6 +51,8 @@ python -m claude_rag ingest <path>   # Ingest a file or directory
 python -m claude_rag search <query>  # Search the RAG database
 python -m claude_rag watch           # Start file watcher daemon
 python -m claude_rag serve           # Start MCP server (stdio)
+python -m claude_rag worker          # Start hook queue worker
+python -m claude_rag worker --once   # Drain queue then exit
 ```
 
 ## Quality Standards
@@ -98,4 +102,39 @@ Add to `~/.claude/settings.json`:
     }
   }
 }
+```
+
+## Hook Configuration (Phase 2A)
+Add to `~/.claude/settings.json` or `.claude/settings.json`:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [{ "type": "command", "command": "python -m claude_rag.hooks.post_tool_use", "timeout": 5 }]
+      },
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [{ "type": "command", "command": "python -m claude_rag.hooks.post_tool_use", "timeout": 5 }]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "python -m claude_rag.hooks.user_prompt", "timeout": 5 }]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "python -m claude_rag.hooks.session_end", "timeout": 30 }]
+      }
+    ]
+  }
+}
+```
+Start the background worker to process hook events:
+```bash
+PGPASSWORD=postgres PYTHONPATH=src python -m claude_rag worker
 ```
