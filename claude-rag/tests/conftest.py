@@ -2,10 +2,36 @@
 
 from __future__ import annotations
 
+import atexit
+import logging
 import sys
 from pathlib import Path
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Suppress noisy third-party loggers that cause "I/O operation on closed file"
+# errors during interpreter shutdown (huggingface_hub atexit handler tries to
+# log HTTP close events after stderr is already torn down).
+# ---------------------------------------------------------------------------
+for _logger_name in (
+    "httpcore",
+    "httpx",
+    "huggingface_hub",
+    "transformers",
+    "sentence_transformers",
+    "torch",
+    "urllib3",
+):
+    logging.getLogger(_logger_name).setLevel(logging.WARNING)
+
+
+def _quiet_shutdown() -> None:
+    """Disable all logging before interpreter shutdown to avoid I/O errors."""
+    logging.disable(logging.CRITICAL)
+
+
+atexit.register(_quiet_shutdown)
 
 # Ensure the src directory is on the import path
 _src = Path(__file__).resolve().parent.parent / "src"
