@@ -1,0 +1,358 @@
+"""CLI for the Claude Code RAG system.
+
+Usage::
+
+    python -m claude_rag health          -- Check system health
+    python -m claude_rag ingest <path>   -- Ingest a file or directory
+    python -m claude_rag search <query>  -- Search the RAG database
+    python -m claude_rag watch           -- Start file watcher daemon
+    python -m claude_rag serve           -- Start MCP server (stdio)
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import sys
+from pathlib import Path
+
+from claude_rag.config import Config
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
+def _configure_logging(config: Config) -> None:
+    """Configure the root logger based on the application config.
+
+    Sets the root log level from ``Config.LOG_LEVEL`` and attaches a
+    ``StreamHandler`` writing to *stderr* so that log output never
+    intermixes with tool data on *stdout*.
+
+    Args:
+        config: The application configuration instance.
+    """
+    from claude_rag.logging_config import configure_logging
+
+    configure_logging(
+        level=config.LOG_LEVEL,
+        log_format=config.LOG_FORMAT,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Subcommand implementations
+# ---------------------------------------------------------------------------
+
+def _cmd_health(config: Config) -> None:
+    """Print a health report to stdout.
+
+    Reports database connection status, chunk/source counts, the configured
+    embedding model name, and the installed pgvector version.
+
+    Args:
+        config: The application configuration instance.
+    """
+    from claude_rag.db.manager import DatabaseManager
+
+    db = DatabaseManager(config)
+
+    print("=== Claude RAG Health Check ===")
+    print()
+
+    # Database connection
+    connected = db.test_connection()
+    status = "OK" if connected else "FAILED"
+    print(f"Database connection : {status}")
+    print(f"  Host              : {config.PGHOST}:{config.PGPORT}")
+    print(f"  Database          : {config.PGDATABASE}")
+
+    if connected:
+        # Counts
+        chunk_count = db.get_chunk_count()
+        source_count = db.get_source_count()
+        print(f"  Chunks            : {chunk_count:,}")
+        print(f"  Sources           : {source_count:,}")
+
+        # pgvector version
+        try:
+            conn = db._get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+            )
+            row = cur.fetchone()
+            pgvector_version = row[0] if row else "not installed"
+            cur.close()
+            conn.close()
+        except Exception as exc:
+            pgvector_version = f"error ({exc})"
+        print(f"  pgvector version  : {pgvector_version}")
+    else:
+        print("  (skipping counts and pgvector check -- no connection)")
+
+    print()
+
+    # Embedding model
+    print(f"Embedding model     : {config.EMBEDDING_MODEL}")
+    print(f"Embedding dimension : {config.EMBEDDING_DIM}")
+    print()
+
+    # Search config
+    print(f"Search top_k        : {config.SEARCH_TOP_K}")
+    print(f"Relevance threshold : {config.RELEVANCE_THRESHOLD}")
+    print(f"Context token budget: {config.CONTEXT_TOKEN_BUDGET}")
+    print(f"RRF constant (k)    : {config.RRF_K}")
+
+
+def _cmd_ingest(config: Config, path: str) -> None:
+    """Ingest a single file or all .md files in a directory.
+
+    Args:
+        config: The application configuration instance.
+        path: Path to a file or directory to ingest.
+    """
+    from claude_rag.ingestion.pipeline import IngestionPipeline
+
+    resolved = Path(path).resolve()
+    pipeline = IngestionPipeline(config=config)
+
+    if resolved.is_file():
+        print(f"Ingesting file: {resolved}")
+        result = pipeline.ingest_file(str(resolved))
+        if result.skipped:
+            print(
+                f"  Skipped (unchanged) -- source_id={result.source_id}, "
+                f"existing chunks={result.chunks_created}"
+            )
+        else:
+            print(
+                f"  Done -- source_id={result.source_id}, "
+                f"chunks={result.chunks_created}, "
+                f"time={result.duration_ms:.1f} ms"
+            )
+    elif resolved.is_dir():
+        print(f"Ingesting directory: {resolved}")
+        results = pipeline.ingest_directory(str(resolved))
+        ingested = sum(1 for r in results if not r.skipped)
+        skipped = sum(1 for r in results if r.skipped)
+        total_chunks = sum(r.chunks_created for r in results)
+        print(
+            f"  Done -- {ingested} ingested, {skipped} skipped, "
+            f"{total_chunks} total chunks"
+        )
+    else:
+        print(f"Error: path does not exist: {resolved}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_search(
+    config: Config,
+    query: str,
+    top_k: int | None,
+    budget: int | None,
+) -> None:
+    """Run a hybrid search and print formatted results to stdout.
+
+    Args:
+        config: The application configuration instance.
+        query: Natural language search query.
+        top_k: Override for ``Config.SEARCH_TOP_K``.
+        budget: Override for ``Config.CONTEXT_TOKEN_BUDGET``.
+    """
+    from claude_rag.db.manager import DatabaseManager
+    from claude_rag.embeddings.local import LocalEmbeddingProvider
+    from claude_rag.search.formatter import deduplicate_results, format_context
+    from claude_rag.search.hybrid import hybrid_search
+
+    effective_top_k = top_k if top_k is not None else config.SEARCH_TOP_K
+    effective_budget = budget if budget is not None else config.CONTEXT_TOKEN_BUDGET
+
+    print(f'Searching: "{query}"')
+    print(f"  top_k={effective_top_k}, budget={effective_budget}")
+    print()
+
+    embedder = LocalEmbeddingProvider()
+    query_embedding = embedder.embed_single(query)
+
+    db = DatabaseManager(config)
+    conn = db._get_connection()
+    try:
+        results = hybrid_search(
+            query_embedding=query_embedding,
+            query_text=query,
+            top_k=effective_top_k,
+            db_conn=conn,
+            rrf_k=config.RRF_K,
+        )
+    finally:
+        conn.close()
+
+    # Filter by relevance threshold and deduplicate
+    results = [r for r in results if r.similarity >= config.RELEVANCE_THRESHOLD]
+    results = deduplicate_results(results)
+
+    if not results:
+        print("No relevant results found.")
+        return
+
+    print(f"Found {len(results)} result(s):")
+    print()
+
+    context = format_context(results, token_budget=effective_budget)
+    print(context)
+
+
+def _cmd_watch(config: Config) -> None:
+    """Start the file watcher daemon.  Blocks until interrupted with Ctrl+C.
+
+    Args:
+        config: The application configuration instance.
+    """
+    from claude_rag.ingestion.pipeline import IngestionPipeline
+    from claude_rag.ingestion.watcher import MemoryFileWatcher
+
+    pipeline = IngestionPipeline(config=config)
+    watcher = MemoryFileWatcher(
+        directories=config.CLAUDE_MEMORY_DIRS,
+        pipeline=pipeline,
+    )
+
+    print("Starting file watcher...")
+    print(f"  Watching: {config.CLAUDE_MEMORY_DIRS}")
+    print("  Press Ctrl+C to stop.")
+    print()
+
+    watcher.start()
+    try:
+        # Block the main thread until interrupted.
+        import time
+
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping watcher...")
+    finally:
+        watcher.stop()
+
+    print("Watcher stopped.")
+
+
+def _cmd_serve() -> None:
+    """Start the MCP server in stdio mode.
+
+    This hands control to the async MCP event loop and blocks until the
+    client disconnects.
+    """
+    from claude_rag.mcp_server.server import main as server_main
+
+    print("Starting MCP server (stdio mode)...", file=sys.stderr)
+    asyncio.run(server_main())
+
+
+# ---------------------------------------------------------------------------
+# Argument parser
+# ---------------------------------------------------------------------------
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build and return the top-level argument parser.
+
+    Returns:
+        An ``argparse.ArgumentParser`` with subcommands for each CLI action.
+    """
+    parser = argparse.ArgumentParser(
+        prog="claude-rag",
+        description="Claude Code RAG system CLI",
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # health
+    subparsers.add_parser(
+        "health",
+        help="Check system health (DB, embeddings, pgvector)",
+    )
+
+    # ingest
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Ingest a file or directory into the RAG database",
+    )
+    ingest_parser.add_argument(
+        "path",
+        help="Path to a file or directory to ingest",
+    )
+
+    # search
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Search the RAG database",
+    )
+    search_parser.add_argument(
+        "query",
+        help="Natural language search query",
+    )
+    search_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="Maximum number of results (default: from config)",
+    )
+    search_parser.add_argument(
+        "--budget",
+        type=int,
+        default=None,
+        help="Token budget for returned context (default: from config)",
+    )
+
+    # watch
+    subparsers.add_parser(
+        "watch",
+        help="Start file watcher daemon (Ctrl+C to stop)",
+    )
+
+    # serve
+    subparsers.add_parser(
+        "serve",
+        help="Start MCP server in stdio mode",
+    )
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    """Parse arguments and dispatch to the appropriate subcommand."""
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    config = Config()
+    _configure_logging(config)
+
+    if args.command == "health":
+        _cmd_health(config)
+    elif args.command == "ingest":
+        _cmd_ingest(config, args.path)
+    elif args.command == "search":
+        _cmd_search(config, args.query, args.top_k, args.budget)
+    elif args.command == "watch":
+        _cmd_watch(config)
+    elif args.command == "serve":
+        _cmd_serve()
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
