@@ -10,6 +10,7 @@ Usage (configured in ``.claude/settings.json``)::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sys
@@ -18,11 +19,77 @@ from pathlib import Path
 
 from claude_rag.config import Config
 from claude_rag.hooks.queue import HookQueue
+from claude_rag.monitoring.activity_logger import log_activity
+from claude_rag.monitoring.event_logger import log_event
 
 logger = logging.getLogger(__name__)
 
 # Minimum output length to index for Bash/Grep (skip trivial commands)
 _MIN_OUTPUT_LENGTH = 50
+
+# Dedup cache persisted to disk so it survives across hook invocations.
+# Each invocation is a separate ``python -m ...`` process, so an in-memory
+# dict would be empty every time.  We use a small JSON file instead.
+_DEDUP_CACHE_FILENAME = "dedup_cache.json"
+
+
+def _load_dedup_cache(state_dir: Path) -> dict[str, tuple[str, float]]:
+    """Load the dedup cache from disk."""
+    cache_file = state_dir / _DEDUP_CACHE_FILENAME
+    try:
+        if cache_file.exists():
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            return {k: (v[0], v[1]) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_dedup_cache(state_dir: Path, cache: dict[str, tuple[str, float]]) -> None:
+    """Persist the dedup cache to disk."""
+    cache_file = state_dir / _DEDUP_CACHE_FILENAME
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(
+            json.dumps({k: [h, t] for k, (h, t) in cache.items()}),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _check_dedup_cache(
+    file_path: str, content_hash: str, state_dir: Path, ttl: float = 300.0
+) -> bool:
+    """Check if a Read event is a duplicate based on content hash and TTL.
+
+    Uses a JSON file on disk so the cache persists across hook process
+    invocations.  Expired entries are pruned on every call.
+
+    Args:
+        file_path: Absolute path of the file that was read.
+        content_hash: SHA-256 hex digest of the file content.
+        state_dir: Directory for the cache file.
+        ttl: Time-to-live in seconds for cache entries (default 5 min).
+
+    Returns:
+        ``True`` if duplicate (skip processing), ``False`` otherwise.
+    """
+    now = time.time()  # wall-clock time (survives across processes)
+    cache = _load_dedup_cache(state_dir)
+
+    # Prune expired entries
+    cache = {k: (h, t) for k, (h, t) in cache.items() if (now - t) < ttl}
+
+    is_dup = False
+    if file_path in cache:
+        prev_hash, prev_time = cache[file_path]
+        if prev_hash == content_hash:
+            is_dup = True
+
+    cache[file_path] = (content_hash, now)
+    _save_dedup_cache(state_dir, cache)
+    return is_dup
 
 
 def _staging_dir(config: Config) -> Path:
@@ -149,15 +216,63 @@ def handle(event: dict) -> None:
     Args:
         event: The full JSON object read from stdin.
     """
+    t0 = time.monotonic()
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input", {})
     tool_response = event.get("tool_response", "")
     session_id = event.get("session_id", "unknown")
 
+    _component = "hook.post_tool_use"
+
+    # -- hook_fired ------------------------------------------------------------
+    _input_summary = tool_input.get("file_path", tool_input.get("command", tool_input.get("pattern", "")))
+    log_activity(
+        _component, "hook_fired",
+        f"PostToolUse fired for {tool_name} tool. Input: {_input_summary}",
+        session_id=session_id,
+        data={"tool_name": tool_name, "input_summary": str(_input_summary)[:200]},
+    )
+
     config = Config()
     staging_dir = _staging_dir(config)
     staging_path: str | None = None
 
+    # -- Read-event dedup check ------------------------------------------------
+    is_dedup = False
+    if tool_name == "Read":
+        content = tool_response if isinstance(tool_response, str) else json.dumps(tool_response)
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        file_path = tool_input.get("file_path", "unknown")
+        is_dedup = _check_dedup_cache(file_path, content_hash, config.STATE_DIR)
+        if is_dedup:
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            # -- dedup_hit -----------------------------------------------------
+            log_activity(
+                _component, "dedup_hit",
+                f"Dedup HIT for {file_path} (hash {content_hash[:8]}... matched). Skipping because content unchanged.",
+                session_id=session_id,
+                data={"file_path": file_path, "content_hash": content_hash[:16], "cache_hit": True},
+                duration_ms=latency_ms,
+            )
+            log_event(
+                "hook_read",
+                session_id=session_id,
+                file_path=file_path,
+                latency_ms=latency_ms,
+                dedup=True,
+            )
+            logger.debug("Dedup hit for Read %s — skipping", file_path)
+            return
+        else:
+            # -- dedup_miss ----------------------------------------------------
+            log_activity(
+                _component, "dedup_miss",
+                f"Dedup MISS for {file_path} (new/changed hash {content_hash[:8]}...). Proceeding to staging.",
+                session_id=session_id,
+                data={"file_path": file_path, "content_hash": content_hash[:16], "cache_hit": False},
+            )
+
+    # -- Stage + enqueue -------------------------------------------------------
     if tool_name == "Read":
         staging_path = _write_read_staging(tool_input, tool_response, session_id, staging_dir)
     elif tool_name == "Bash":
@@ -165,16 +280,40 @@ def handle(event: dict) -> None:
     elif tool_name == "Grep":
         staging_path = _write_grep_staging(tool_input, tool_response, session_id, staging_dir)
     else:
+        # -- tool_ignored ------------------------------------------------------
+        log_activity(
+            _component, "tool_ignored",
+            f"Ignoring PostToolUse for unhandled tool '{tool_name}'. Only Read/Bash/Grep indexed.",
+            session_id=session_id,
+            data={"tool_name": tool_name},
+        )
         logger.debug("Ignoring PostToolUse for unhandled tool: %s", tool_name)
         return
 
     if staging_path is None:
+        # -- output_too_short --------------------------------------------------
+        output = tool_response if isinstance(tool_response, str) else json.dumps(tool_response)
+        log_activity(
+            _component, "output_too_short",
+            f"Skipping {tool_name} event: output {len(output)} chars < minimum {_MIN_OUTPUT_LENGTH}. Too trivial to index.",
+            session_id=session_id,
+            data={"tool_name": tool_name, "output_length": len(output), "min_length": _MIN_OUTPUT_LENGTH},
+        )
         logger.debug("Skipping %s event (output too short)", tool_name)
         return
 
+    # -- staging_written -------------------------------------------------------
+    staging_size = Path(staging_path).stat().st_size
+    log_activity(
+        _component, "staging_written",
+        f"Wrote staging file {Path(staging_path).name} ({staging_size} bytes).",
+        session_id=session_id,
+        data={"staging_path": staging_path, "size_bytes": staging_size},
+    )
+
     queue = HookQueue(config.STATE_DIR / "hook_queue.db")
     try:
-        queue.enqueue(
+        item_id = queue.enqueue(
             event_type=tool_name.lower(),
             payload={"tool_name": tool_name, "tool_input": tool_input},
             session_id=session_id,
@@ -182,6 +321,27 @@ def handle(event: dict) -> None:
         )
     finally:
         queue.close()
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # -- item_enqueued ---------------------------------------------------------
+    log_activity(
+        _component, "item_enqueued",
+        f"Enqueued {tool_name.lower()} event as queue item #{item_id}. Hook latency: {latency_ms}ms.",
+        session_id=session_id,
+        correlation_id=str(item_id),
+        data={"tool_name": tool_name, "item_id": item_id, "staging_path": staging_path},
+        duration_ms=latency_ms,
+    )
+
+    event_type = f"hook_{tool_name.lower()}"
+    log_event(
+        event_type,
+        session_id=session_id,
+        file_path=tool_input.get("file_path", tool_input.get("command", "")),
+        latency_ms=latency_ms,
+        dedup=False,
+    )
 
     logger.debug("Enqueued %s event -> %s", tool_name, staging_path)
 

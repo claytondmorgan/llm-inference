@@ -128,7 +128,7 @@ _RESULT_TEMPLATE = (
 def format_context(
     results: list[SearchResult],
     token_budget: int = 4096,
-) -> str:
+) -> tuple[str, int]:
     """Pack search results into a token-budgeted context string.
 
     Iterates results in rank order (the caller is responsible for sorting,
@@ -148,10 +148,10 @@ def format_context(
         token_budget: Maximum number of tokens for the returned string.
 
     Returns:
-        A formatted context string ready for LLM prompt injection.
+        A ``(context_string, tokens_used)`` tuple.
     """
     if not results:
-        return ""
+        return "", 0
 
     parts: list[str] = []
     tokens_used = 0
@@ -204,4 +204,4 @@ def format_context(
         tokens_used,
         token_budget,
     )
-    return context
+    return context, tokens_used

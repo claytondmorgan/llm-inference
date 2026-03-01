@@ -130,6 +130,15 @@ def create_server() -> Server:
         )
 
         # -- Embed the query ---------------------------------------------------
+        import os
+        import time as _time
+
+        from claude_rag.monitoring.event_logger import log_event
+
+        # Use Claude Code session ID if available, else derive from MCP server PID
+        _session_id = os.environ.get("CLAUDE_SESSION_ID", f"mcp-{os.getpid()}")
+
+        _t0 = _time.monotonic()
         query_embedding: list[float] = _embedder.embed_single(query)
 
         # -- Execute hybrid search ---------------------------------------------
@@ -152,7 +161,27 @@ def create_server() -> Server:
             r for r in results if r.similarity >= _config.RELEVANCE_THRESHOLD
         ]
         results = deduplicate_results(results)
-        context: str = format_context(results, token_budget=token_budget)
+        context, tokens_used = format_context(results, token_budget=token_budget)
+
+        _latency = int((_time.monotonic() - _t0) * 1000)
+        # Use cosine similarity (0-1) for relevance, not RRF score (~0.02)
+        _avg_cosine = (
+            sum(r.metadata.get("cosine_similarity", 0) for r in results) / len(results)
+            if results
+            else 0.0
+        )
+        _is_fallback = len(results) == 0
+        _budget_pct = round(tokens_used / token_budget * 100) if token_budget > 0 else 0
+        log_event(
+            "rag_search",
+            session_id=_session_id,
+            query=query[:100],
+            result_count=len(results),
+            relevance=round(_avg_cosine, 3),
+            latency_ms=_latency,
+            fallback=_is_fallback,
+            budget_used_pct=_budget_pct,
+        )
 
         if not context.strip():
             context = (

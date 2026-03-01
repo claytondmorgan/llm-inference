@@ -158,9 +158,10 @@ class TestFormatContextBudget:
             for i in range(5)
         ]
 
-        context = format_context(results, token_budget=4096)
+        context, tokens_used = format_context(results, token_budget=4096)
         assert isinstance(context, str)
         assert len(context) > 0
+        assert tokens_used > 0
 
         # Each result should have its header
         for r in results:
@@ -178,7 +179,7 @@ class TestFormatContextBudget:
         ]
 
         # A very small budget should truncate
-        context = format_context(results, token_budget=100)
+        context, _ = format_context(results, token_budget=100)
 
         # Not all 10 results should appear in full
         end_markers_found = sum(
@@ -189,8 +190,9 @@ class TestFormatContextBudget:
         )
 
     def test_format_context_empty_results(self) -> None:
-        context = format_context([], token_budget=4096)
+        context, tokens_used = format_context([], token_budget=4096)
         assert context == ""
+        assert tokens_used == 0
 
     def test_format_context_contains_source_and_type(self) -> None:
         r = _make_result(
@@ -200,7 +202,7 @@ class TestFormatContextBudget:
             block_type="code",
             similarity=0.850,
         )
-        context = format_context([r], token_budget=4096)
+        context, _ = format_context([r], token_budget=4096)
 
         assert "/project/CLAUDE.md" in context
         assert "code" in context
@@ -213,7 +215,7 @@ class TestFormatContextBudget:
             _make_result(chunk_id=1, content="First result."),
             _make_result(chunk_id=2, content="Second result."),
         ]
-        context = format_context(results, token_budget=4096)
+        context, _ = format_context(results, token_budget=4096)
         assert context.count("---") >= 1
 
     def test_format_context_large_budget_includes_all(self) -> None:
@@ -222,7 +224,7 @@ class TestFormatContextBudget:
             _make_result(chunk_id=i, content=f"Short content {i}.")
             for i in range(3)
         ]
-        context = format_context(results, token_budget=100_000)
+        context, _ = format_context(results, token_budget=100_000)
 
         for i in range(3):
             assert f"Short content {i}." in context

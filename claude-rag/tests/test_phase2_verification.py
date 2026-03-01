@@ -527,12 +527,10 @@ class TestV2_17_TokenEfficientContext:
             pytest.skip("No results to format")
 
         budget = 2000
-        context = format_context(results, token_budget=budget)
+        context, tokens_used = format_context(results, token_budget=budget)
 
-        # Rough token estimate: ~4 chars per token
-        estimated_tokens = len(context) / 4
-        assert estimated_tokens <= budget * 1.2, (
-            f"Context exceeds budget: ~{estimated_tokens:.0f} tokens vs {budget} budget"
+        assert tokens_used <= budget * 1.2, (
+            f"Context exceeds budget: {tokens_used} tokens vs {budget} budget"
         )
         assert len(context) > 0, "Empty context returned"
 
@@ -576,7 +574,7 @@ class TestV2_20_GracefulFallbackEmptyRAG:
         results = deduplicate_results(results)
 
         # Should not crash — may return 0 or low-relevance results
-        context = format_context(results, token_budget=2000)
+        context, _ = format_context(results, token_budget=2000)
         # context can be empty or contain low-relevance results — both OK
         assert isinstance(context, str)
 

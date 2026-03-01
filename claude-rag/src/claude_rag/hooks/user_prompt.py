@@ -18,6 +18,8 @@ from pathlib import Path
 
 from claude_rag.config import Config
 from claude_rag.hooks.queue import HookQueue
+from claude_rag.monitoring.activity_logger import log_activity
+from claude_rag.monitoring.event_logger import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +32,28 @@ def handle(event: dict) -> None:
     Args:
         event: The full JSON object read from stdin.
     """
+    t0 = time.monotonic()
     prompt = event.get("prompt", "")
     session_id = event.get("session_id", "unknown")
 
+    _component = "hook.user_prompt"
+
+    # -- hook_fired ------------------------------------------------------------
+    prompt_preview = prompt[:80].replace("\n", " ")
+    log_activity(
+        _component, "hook_fired",
+        f"UserPromptSubmit fired. Prompt: '{prompt_preview}...' ({len(prompt)} chars)",
+        session_id=session_id,
+        data={"prompt_length": len(prompt), "prompt_preview": prompt_preview},
+    )
+
     if not prompt.strip():
+        # -- prompt_empty ------------------------------------------------------
+        log_activity(
+            _component, "prompt_empty",
+            "Ignoring empty prompt. No content to index.",
+            session_id=session_id,
+        )
         logger.debug("Ignoring empty prompt")
         return
 
@@ -55,9 +75,18 @@ def handle(event: dict) -> None:
     )
     staging_path.write_text(md, encoding="utf-8")
 
+    # -- staging_written -------------------------------------------------------
+    staging_size = staging_path.stat().st_size
+    log_activity(
+        _component, "staging_written",
+        f"Wrote staging file {staging_path.name} ({staging_size} bytes).",
+        session_id=session_id,
+        data={"staging_path": str(staging_path), "size_bytes": staging_size},
+    )
+
     queue = HookQueue(config.STATE_DIR / "hook_queue.db")
     try:
-        queue.enqueue(
+        item_id = queue.enqueue(
             event_type="user_prompt",
             payload={"prompt": prompt},
             session_id=session_id,
@@ -66,16 +95,42 @@ def handle(event: dict) -> None:
     finally:
         queue.close()
 
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # -- item_enqueued ---------------------------------------------------------
+    log_activity(
+        _component, "item_enqueued",
+        f"Enqueued user_prompt as queue item #{item_id}. Hook latency: {latency_ms}ms.",
+        session_id=session_id,
+        correlation_id=str(item_id),
+        data={"item_id": item_id, "prompt_length": len(prompt)},
+        duration_ms=latency_ms,
+    )
+
+    log_event(
+        "hook_prompt",
+        session_id=session_id,
+        prompt_length=len(prompt),
+    )
+
     logger.debug("Enqueued user_prompt event -> %s", staging_path)
 
 
 def main() -> None:
     """Entry point when invoked as ``python -m claude_rag.hooks.user_prompt``."""
+    debug_log = Path.home() / ".claude-rag" / "hook_debug.log"
+    debug_log.parent.mkdir(parents=True, exist_ok=True)
     try:
         raw = sys.stdin.read()
+        with open(debug_log, "a", encoding="utf-8") as f:
+            f.write(f"[user_prompt] raw={raw[:200]!r}\n")
         event = json.loads(raw)
         handle(event)
-    except Exception:
+        with open(debug_log, "a", encoding="utf-8") as f:
+            f.write(f"[user_prompt] SUCCESS session={event.get('session_id')}\n")
+    except Exception as exc:
+        with open(debug_log, "a", encoding="utf-8") as f:
+            f.write(f"[user_prompt] ERROR: {exc}\n")
         logger.exception("user_prompt hook failed")
         sys.exit(1)
 

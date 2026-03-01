@@ -19,6 +19,7 @@ from claude_rag.embeddings.local import LocalEmbeddingProvider
 from claude_rag.ingestion.chunker import Chunk, chunk_blocks
 from claude_rag.ingestion.metadata import enrich_chunk_metadata
 from claude_rag.ingestion.parser import ParsedBlock, parse_claude_md, parse_session_log
+from claude_rag.monitoring.activity_logger import log_activity
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,15 @@ class IngestionResult:
         duration_ms: Wall-clock time spent on the ingestion, in milliseconds.
         skipped: ``True`` when the file hash matched the existing record and
             no work was performed.
+        stage_timings: Per-stage timing breakdown in milliseconds, e.g.
+            ``{"hash": 5, "parse": 10, "chunk": 3, "embed": 100, "store": 17}``.
     """
 
     source_id: int
     chunks_created: int
     duration_ms: float
     skipped: bool = False
+    stage_timings: dict[str, float] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +199,9 @@ class IngestionPipeline:
     # Public API
     # ------------------------------------------------------------------
 
-    def ingest_file(self, file_path: str) -> IngestionResult:
+    def ingest_file(
+        self, file_path: str, *, correlation_id: str | None = None,
+    ) -> IngestionResult:
         """Ingest a single file into the RAG database.
 
         Steps performed:
@@ -210,6 +216,7 @@ class IngestionPipeline:
 
         Args:
             file_path: Absolute or relative path to the file to ingest.
+            correlation_id: Optional queue item ID for activity log tracing.
 
         Returns:
             An ``IngestionResult`` summarising the outcome.
@@ -219,18 +226,41 @@ class IngestionPipeline:
             ValueError: If the file produces no parseable blocks.
         """
         t0 = time.perf_counter()
+        stage_timings: dict[str, float] = {}
         resolved = Path(file_path).resolve()
+        file_size = resolved.stat().st_size
+
+        _component = "pipeline"
 
         logger.info("Starting ingestion for %s", resolved)
 
         # 1. Compute file hash
+        t_hash = time.perf_counter()
         file_hash = _compute_file_hash(resolved)
+        stage_timings["hash"] = round((time.perf_counter() - t_hash) * 1_000, 1)
         logger.debug("SHA-256 hash: %s", file_hash)
+
+        # -- hash_computed -----------------------------------------------------
+        log_activity(
+            _component, "hash_computed",
+            f"SHA-256 {file_hash[:12]}... for {resolved.name} ({file_size} bytes).",
+            correlation_id=correlation_id,
+            data={"file_hash": file_hash[:16], "file_size": file_size, "file_name": resolved.name},
+            duration_ms=stage_timings["hash"],
+        )
 
         # 2. Check for existing source with the same hash
         existing = self.db.get_source_by_path(str(resolved))
         if existing is not None and existing.file_hash == file_hash:
             elapsed_ms = (time.perf_counter() - t0) * 1_000
+            # -- hash_skip -----------------------------------------------------
+            log_activity(
+                _component, "hash_skip",
+                f"Hash unchanged for {resolved.name} (source_id={existing.id}). Skipping all stages.",
+                correlation_id=correlation_id,
+                data={"source_id": existing.id, "file_hash": file_hash[:16]},
+                duration_ms=elapsed_ms,
+            )
             logger.info(
                 "Skipping %s — hash unchanged (source_id=%d, %.1f ms)",
                 resolved,
@@ -242,6 +272,7 @@ class IngestionPipeline:
                 chunks_created=existing.chunk_count,
                 duration_ms=elapsed_ms,
                 skipped=True,
+                stage_timings={"hash": stage_timings["hash"]},
             )
 
         # 3. Determine file type and project path
@@ -249,24 +280,82 @@ class IngestionPipeline:
         project_path = _detect_project_path(resolved)
         logger.debug("file_type=%s, project_path=%s", file_type, project_path)
 
+        # -- file_type_detected ------------------------------------------------
+        log_activity(
+            _component, "file_type_detected",
+            f"Detected type '{file_type}' for {resolved.name}.",
+            correlation_id=correlation_id,
+            data={"file_type": file_type, "project_path": project_path},
+        )
+
         # 4. Parse the file
+        t_parse = time.perf_counter()
         blocks = self._parse(resolved, file_type)
+        stage_timings["parse"] = round((time.perf_counter() - t_parse) * 1_000, 1)
         logger.info("Parsed %d blocks from %s", len(blocks), resolved)
 
+        # -- blocks_parsed -----------------------------------------------------
+        block_type_counts: dict[str, int] = {}
+        for b in blocks:
+            bt = getattr(b, "block_type", "unknown")
+            block_type_counts[bt] = block_type_counts.get(bt, 0) + 1
+        type_summary = ", ".join(f"{k}={v}" for k, v in block_type_counts.items())
+        log_activity(
+            _component, "blocks_parsed",
+            f"Parsed {len(blocks)} blocks: {type_summary}.",
+            correlation_id=correlation_id,
+            data={"block_count": len(blocks), "block_types": block_type_counts},
+            duration_ms=stage_timings["parse"],
+        )
+
         # 5. Chunk the parsed blocks
+        t_chunk = time.perf_counter()
         chunks = chunk_blocks(
             blocks,
             chunk_size=self.config.CHUNK_SIZE,
             overlap=self.config.CHUNK_OVERLAP,
         )
+        stage_timings["chunk"] = round((time.perf_counter() - t_chunk) * 1_000, 1)
         logger.info("Created %d chunks from %d blocks", len(chunks), len(blocks))
 
+        # -- chunks_created ----------------------------------------------------
+        avg_tokens = round(sum(len(c.content.split()) for c in chunks) / max(len(chunks), 1))
+        log_activity(
+            _component, "chunks_created",
+            f"Created {len(chunks)} chunks ({self.config.CHUNK_SIZE} tok, {self.config.CHUNK_OVERLAP} overlap). Avg: {avg_tokens} tokens.",
+            correlation_id=correlation_id,
+            data={
+                "chunk_count": len(chunks),
+                "chunk_size": self.config.CHUNK_SIZE,
+                "overlap": self.config.CHUNK_OVERLAP,
+                "avg_tokens": avg_tokens,
+            },
+            duration_ms=stage_timings["chunk"],
+        )
+
         # 6. Embed all chunks in batch
+        t_embed = time.perf_counter()
         texts = [c.content for c in chunks]
         embeddings = self._embed_batch(texts)
+        stage_timings["embed"] = round((time.perf_counter() - t_embed) * 1_000, 1)
         logger.info("Generated %d embeddings (dim=%d)", len(embeddings), self.embedder.dimension)
 
+        # -- embeddings_generated ----------------------------------------------
+        batch_count = max(1, -(-len(texts) // self.config.EMBEDDING_BATCH_SIZE))  # ceil div
+        log_activity(
+            _component, "embeddings_generated",
+            f"Generated {len(embeddings)} embeddings ({self.embedder.dimension}-dim) in {batch_count} batch(es), {stage_timings['embed']:.0f}ms.",
+            correlation_id=correlation_id,
+            data={
+                "embedding_count": len(embeddings),
+                "dimension": self.embedder.dimension,
+                "batches": batch_count,
+            },
+            duration_ms=stage_timings["embed"],
+        )
+
         # 7. Upsert source and chunks to the database
+        t_store = time.perf_counter()
         source_id = self.db.upsert_source(
             file_path=str(resolved),
             file_hash=file_hash,
@@ -276,8 +365,33 @@ class IngestionPipeline:
 
         records = _chunks_to_records(chunks, embeddings, source_path=str(resolved))
         chunks_created = self.db.upsert_chunks(source_id, records)
+        stage_timings["store"] = round((time.perf_counter() - t_store) * 1_000, 1)
+
+        # -- db_upsert ---------------------------------------------------------
+        log_activity(
+            _component, "db_upsert",
+            f"Upserted source_id={source_id} with {chunks_created} chunks.",
+            correlation_id=correlation_id,
+            data={"source_id": source_id, "chunks_created": chunks_created},
+            duration_ms=stage_timings["store"],
+        )
 
         elapsed_ms = (time.perf_counter() - t0) * 1_000
+
+        # -- pipeline_complete -------------------------------------------------
+        timing_summary = ", ".join(f"{k}={v:.0f}ms" for k, v in stage_timings.items())
+        log_activity(
+            _component, "pipeline_complete",
+            f"Pipeline complete: source_id={source_id}, {chunks_created} chunks, {elapsed_ms:.0f}ms. Stages: {timing_summary}.",
+            correlation_id=correlation_id,
+            data={
+                "source_id": source_id,
+                "chunks_created": chunks_created,
+                "stage_timings": stage_timings,
+            },
+            duration_ms=elapsed_ms,
+        )
+
         logger.info(
             "Ingested %s — source_id=%d, chunks=%d, %.1f ms",
             resolved,
@@ -290,6 +404,7 @@ class IngestionPipeline:
             source_id=source_id,
             chunks_created=chunks_created,
             duration_ms=elapsed_ms,
+            stage_timings=stage_timings,
         )
 
     def ingest_directory(self, dir_path: str) -> list[IngestionResult]:

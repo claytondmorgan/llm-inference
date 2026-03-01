@@ -8,6 +8,10 @@ Usage::
     python -m claude_rag watch           -- Start file watcher daemon
     python -m claude_rag serve           -- Start MCP server (stdio)
     python -m claude_rag worker          -- Start hook queue worker
+    python -m claude_rag preflight       -- Run RAG preflight checks
+    python -m claude_rag stats           -- Start stats HTTP server
+    python -m claude_rag dashboard       -- Open live dashboard in browser
+    python -m claude_rag activity        -- View human-readable activity log
 """
 
 from __future__ import annotations
@@ -165,10 +169,17 @@ def _cmd_search(
         top_k: Override for ``Config.SEARCH_TOP_K``.
         budget: Override for ``Config.CONTEXT_TOKEN_BUDGET``.
     """
+    import os
+    import time as _time
+
     from claude_rag.db.manager import DatabaseManager
     from claude_rag.embeddings.local import LocalEmbeddingProvider
+    from claude_rag.monitoring.event_logger import log_event
     from claude_rag.search.formatter import deduplicate_results, format_context
     from claude_rag.search.hybrid import hybrid_search
+
+    # Use Claude Code session ID if available, else generate a CLI-specific one
+    session_id = os.environ.get("CLAUDE_SESSION_ID", f"cli-{os.getpid()}")
 
     effective_top_k = top_k if top_k is not None else config.SEARCH_TOP_K
     effective_budget = budget if budget is not None else config.CONTEXT_TOKEN_BUDGET
@@ -177,6 +188,7 @@ def _cmd_search(
     print(f"  top_k={effective_top_k}, budget={effective_budget}")
     print()
 
+    _t0 = _time.monotonic()
     embedder = LocalEmbeddingProvider()
     query_embedding = embedder.embed_single(query)
 
@@ -197,14 +209,44 @@ def _cmd_search(
     results = [r for r in results if r.similarity >= config.RELEVANCE_THRESHOLD]
     results = deduplicate_results(results)
 
+    _latency = int((_time.monotonic() - _t0) * 1000)
+    # Use cosine similarity (0-1) for relevance, not RRF score (~0.02)
+    _avg_cosine = (
+        sum(r.metadata.get("cosine_similarity", 0) for r in results) / len(results)
+        if results
+        else 0.0
+    )
+    _is_fallback = len(results) == 0
+
     if not results:
+        log_event(
+            "rag_search",
+            session_id=session_id,
+            query=query[:100],
+            result_count=0,
+            relevance=0.0,
+            latency_ms=_latency,
+            fallback=True,
+            budget_used_pct=0,
+        )
         print("No relevant results found.")
         return
 
     print(f"Found {len(results)} result(s):")
     print()
 
-    context = format_context(results, token_budget=effective_budget)
+    context, tokens_used = format_context(results, token_budget=effective_budget)
+    _budget_pct = round(tokens_used / effective_budget * 100) if effective_budget > 0 else 0
+    log_event(
+        "rag_search",
+        session_id=session_id,
+        query=query[:100],
+        result_count=len(results),
+        relevance=round(_avg_cosine, 3),
+        latency_ms=_latency,
+        fallback=_is_fallback,
+        budget_used_pct=_budget_pct,
+    )
     print(context)
 
 
@@ -253,6 +295,173 @@ def _cmd_serve() -> None:
 
     print("Starting MCP server (stdio mode)...", file=sys.stderr)
     asyncio.run(server_main())
+
+
+def _cmd_preflight(config: Config, verbose: bool) -> None:
+    """Run RAG preflight checks and print results.
+
+    This is the same logic as the SessionStart hook, but invoked
+    manually for diagnostics.
+
+    Args:
+        config: The application configuration instance.
+        verbose: If ``True``, print the full JSON results.
+    """
+    import json
+
+    from claude_rag.hooks.rag_preflight import format_context, run_preflight
+
+    results = run_preflight()
+
+    if verbose:
+        print(json.dumps(results, indent=2, default=str))
+    else:
+        print(format_context(results))
+
+
+def _cmd_stats(config: Config, port: int | None) -> None:
+    """Start the stats HTTP server for the live dashboard.
+
+    Args:
+        config: The application configuration instance.
+        port: Port override (default 9473).
+    """
+    import os
+
+    if port is not None:
+        os.environ["RAG_STATS_PORT"] = str(port)
+
+    from claude_rag.monitoring.stats_server import main as stats_main
+
+    stats_main()
+
+
+def _cmd_dashboard(config: Config, port: int | None, no_browser: bool) -> None:
+    """Start the dashboard server and open it in a browser.
+
+    Args:
+        config: The application configuration instance.
+        port: Port override (default 9473).
+        no_browser: If ``True``, skip opening the browser automatically.
+    """
+    import os
+
+    if port is not None:
+        os.environ["RAG_STATS_PORT"] = str(port)
+
+    from claude_rag.monitoring.stats_server import start_dashboard_server
+
+    start_dashboard_server(port=port, open_browser=not no_browser)
+
+
+def _cmd_activity(config: Config, tail: int, follow: bool, component: str | None) -> None:
+    """Pretty-print the activity log for human review.
+
+    Args:
+        config: The application configuration instance.
+        tail: Number of most-recent entries to show (0 = all).
+        follow: If ``True``, continuously watch for new entries.
+        component: If set, only show entries whose ``component`` matches.
+    """
+    import json
+    import time as _time
+    from datetime import datetime
+
+    activity_file = config.STATE_DIR / "metrics" / "activity.jsonl"
+
+    if not activity_file.exists():
+        print(f"Activity log not found: {activity_file}")
+        print("(No activity has been recorded yet.)")
+        return
+
+    def _format_entry(entry: dict) -> str:
+        """Format a single activity entry for terminal display."""
+        ts = entry.get("timestamp", "")
+        level = entry.get("level", "info").upper()
+        comp = entry.get("component", "?")
+        action = entry.get("action", "?")
+        desc = entry.get("description", "")
+        cid = entry.get("correlation_id")
+        dur = entry.get("duration_ms")
+
+        # Color-code by level (ANSI)
+        level_colors = {"INFO": "\033[32m", "WARN": "\033[33m", "ERROR": "\033[31m", "DEBUG": "\033[90m"}
+        reset = "\033[0m"
+        color = level_colors.get(level, "")
+
+        parts = [f"{color}[{ts}] {level:5s}{reset} {comp}:{action}"]
+        if cid:
+            parts[0] += f"  \033[36m(#{cid})\033[0m"
+        parts.append(f"  {desc}")
+        if dur is not None:
+            parts.append(f"  \033[90m({dur}ms)\033[0m")
+
+        return "\n".join(parts)
+
+    def _matches(entry: dict) -> bool:
+        if component and entry.get("component", "") != component:
+            return False
+        return True
+
+    def _read_entries() -> list[dict]:
+        entries = []
+        with open(activity_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    if _matches(entry):
+                        entries.append(entry)
+                except json.JSONDecodeError:
+                    continue
+        return entries
+
+    if not follow:
+        entries = _read_entries()
+        if tail > 0:
+            entries = entries[-tail:]
+        if not entries:
+            print("No matching activity entries.")
+            return
+        for entry in entries:
+            print(_format_entry(entry))
+            print()
+    else:
+        # Show initial tail, then follow
+        entries = _read_entries()
+        if tail > 0:
+            entries = entries[-tail:]
+        for entry in entries:
+            print(_format_entry(entry))
+            print()
+
+        print(f"\033[90m--- Following {activity_file} (Ctrl+C to stop) ---\033[0m")
+        sys.stdout.flush()
+
+        try:
+            with open(activity_file, "r", encoding="utf-8") as f:
+                # Seek to end
+                f.seek(0, 2)
+                while True:
+                    line = f.readline()
+                    if not line:
+                        _time.sleep(0.3)
+                        continue
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if _matches(entry):
+                            print(_format_entry(entry))
+                            print()
+                            sys.stdout.flush()
+                    except json.JSONDecodeError:
+                        continue
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
 
 def _cmd_worker(config: Config, once: bool) -> None:
@@ -358,6 +567,69 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Drain the queue once then exit (don't poll)",
     )
 
+    # preflight
+    preflight_parser = subparsers.add_parser(
+        "preflight",
+        help="Run RAG preflight checks (DB, hooks, MCP, queue)",
+    )
+    preflight_parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Print full JSON diagnostic output",
+    )
+
+    # stats
+    stats_parser = subparsers.add_parser(
+        "stats",
+        help="Start stats HTTP server for the live dashboard",
+    )
+    stats_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to listen on (default: 9473)",
+    )
+
+    # dashboard
+    dash_parser = subparsers.add_parser(
+        "dashboard",
+        help="Open live monitoring dashboard in a browser",
+    )
+    dash_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to listen on (default: 9473)",
+    )
+    dash_parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Don't open a browser automatically",
+    )
+
+    # activity
+    activity_parser = subparsers.add_parser(
+        "activity",
+        help="View human-readable activity log (hooks, worker, pipeline)",
+    )
+    activity_parser.add_argument(
+        "--tail", "-n",
+        type=int,
+        default=20,
+        help="Number of most-recent entries to show (0 = all, default: 20)",
+    )
+    activity_parser.add_argument(
+        "--follow", "-f",
+        action="store_true",
+        help="Continuously watch for new entries (like tail -f)",
+    )
+    activity_parser.add_argument(
+        "--component", "-c",
+        type=str,
+        default=None,
+        help="Filter by component (e.g. 'hook.post_tool_use', 'worker', 'pipeline')",
+    )
+
     return parser
 
 
@@ -389,6 +661,14 @@ def main() -> None:
         _cmd_serve()
     elif args.command == "worker":
         _cmd_worker(config, args.once)
+    elif args.command == "preflight":
+        _cmd_preflight(config, args.verbose)
+    elif args.command == "stats":
+        _cmd_stats(config, args.port)
+    elif args.command == "dashboard":
+        _cmd_dashboard(config, args.port, args.no_browser)
+    elif args.command == "activity":
+        _cmd_activity(config, args.tail, args.follow, args.component)
     else:
         parser.print_help()
         sys.exit(1)

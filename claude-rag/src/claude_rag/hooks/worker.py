@@ -21,6 +21,7 @@ from pathlib import Path
 from claude_rag.config import Config
 from claude_rag.hooks.queue import HookQueue, QueueItem
 from claude_rag.ingestion.pipeline import IngestionPipeline
+from claude_rag.monitoring.activity_logger import log_activity
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,18 @@ class HookWorker:
         if item is None:
             return False
 
+        _cid = str(item.id)
+        age_s = round(time.time() - item.created_at, 1)
+
+        # -- item_dequeued -----------------------------------------------------
+        log_activity(
+            "worker", "item_dequeued",
+            f"Dequeued item #{item.id} (type={item.event_type}, session={item.session_id}, age={age_s}s).",
+            session_id=item.session_id,
+            correlation_id=_cid,
+            data={"item_id": item.id, "event_type": item.event_type, "age_s": age_s},
+        )
+
         logger.info(
             "Processing queue item %d (%s, session=%s)",
             item.id,
@@ -87,6 +100,15 @@ class HookWorker:
             logger.info("Completed queue item %d", item.id)
         except Exception as exc:
             self.queue.fail(item.id, str(exc))
+            # -- item_failed ---------------------------------------------------
+            log_activity(
+                "worker", "item_failed",
+                f"FAILED item #{item.id}: {exc}. Marked as error.",
+                level="error",
+                session_id=item.session_id,
+                correlation_id=_cid,
+                data={"item_id": item.id, "error": str(exc)},
+            )
             logger.exception("Failed queue item %d: %s", item.id, exc)
 
         return True
@@ -137,17 +159,63 @@ class HookWorker:
         Args:
             item: The dequeued item to process.
         """
+        _cid = str(item.id)
         staging_path = item.staging_path
         if not staging_path:
+            # -- staging_missing -----------------------------------------------
+            log_activity(
+                "worker", "staging_missing",
+                f"Queue item #{item.id} has no staging_path. Cannot ingest.",
+                level="warn",
+                session_id=item.session_id,
+                correlation_id=_cid,
+                data={"item_id": item.id},
+            )
             logger.warning("Queue item %d has no staging_path, skipping", item.id)
             return
 
         path = Path(staging_path)
         if not path.exists():
+            # -- staging_missing -----------------------------------------------
+            log_activity(
+                "worker", "staging_missing",
+                f"Staging file missing for item #{item.id}: {staging_path}. Cannot ingest.",
+                level="warn",
+                session_id=item.session_id,
+                correlation_id=_cid,
+                data={"item_id": item.id, "staging_path": staging_path},
+            )
             logger.warning("Staging file missing: %s (item %d)", staging_path, item.id)
             return
 
-        result = self.pipeline.ingest_file(staging_path)
+        # -- ingestion_started -------------------------------------------------
+        log_activity(
+            "worker", "ingestion_started",
+            f"Starting pipeline for item #{item.id}: {path.name}",
+            session_id=item.session_id,
+            correlation_id=_cid,
+            data={"item_id": item.id, "staging_path": staging_path},
+        )
+
+        result = self.pipeline.ingest_file(staging_path, correlation_id=_cid)
+
+        # -- item_completed ----------------------------------------------------
+        log_activity(
+            "worker", "item_completed",
+            f"Completed item #{item.id}: source_id={result.source_id}, {result.chunks_created} chunks, {result.duration_ms:.0f}ms.",
+            session_id=item.session_id,
+            correlation_id=_cid,
+            data={
+                "item_id": item.id,
+                "source_id": result.source_id,
+                "chunks_created": result.chunks_created,
+                "duration_ms": result.duration_ms,
+                "skipped": result.skipped,
+                "stage_timings": result.stage_timings,
+            },
+            duration_ms=result.duration_ms,
+        )
+
         logger.info(
             "Ingested %s -> source_id=%d, chunks=%d, %.1f ms",
             staging_path,
@@ -159,6 +227,14 @@ class HookWorker:
         # Clean up staging file (it's now in the DB)
         if path.exists() and "staging" in str(path):
             path.unlink()
+            # -- staging_cleaned -----------------------------------------------
+            log_activity(
+                "worker", "staging_cleaned",
+                f"Cleaned up staging file for item #{item.id}. Content is in DB.",
+                session_id=item.session_id,
+                correlation_id=_cid,
+                data={"item_id": item.id, "staging_path": staging_path},
+            )
             logger.debug("Cleaned up staging file: %s", staging_path)
 
 
