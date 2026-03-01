@@ -270,10 +270,16 @@ class TestSearchResultDedupLargeBatch:
 class TestHookEventDedup:
     """Hook-level dedup in post_tool_use.py using content hash + TTL cache."""
 
-    def setup_method(self) -> None:
-        """Clear the dedup cache before each test."""
-        from claude_rag.hooks import post_tool_use
-        post_tool_use._dedup_cache.clear()
+    def setup_method(self, tmp_path_factory=None) -> None:
+        """Create a fresh temp dir for the dedup cache before each test."""
+        import tempfile
+        self._tmp = tempfile.mkdtemp()
+        self._state_dir = Path(self._tmp)
+
+    def teardown_method(self) -> None:
+        """Clean up temp dir."""
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_same_file_same_hash_within_ttl_is_dedup(self) -> None:
         """Second Read of unchanged file within TTL -> dedup=True."""
@@ -283,9 +289,9 @@ class TestHookEventDedup:
         path = "/project/src/main.py"
 
         # First call: not a dup
-        assert _check_dedup_cache(path, content_hash, ttl=30.0) is False
+        assert _check_dedup_cache(path, content_hash, self._state_dir, ttl=30.0) is False
         # Second call: same path + hash within TTL -> dup
-        assert _check_dedup_cache(path, content_hash, ttl=30.0) is True
+        assert _check_dedup_cache(path, content_hash, self._state_dir, ttl=30.0) is True
 
     def test_same_file_changed_content_not_dedup(self) -> None:
         """File changed between reads -> not a dup."""
@@ -295,8 +301,8 @@ class TestHookEventDedup:
         hash_v1 = hashlib.sha256(b"version 1 content").hexdigest()
         hash_v2 = hashlib.sha256(b"version 2 content").hexdigest()
 
-        assert _check_dedup_cache(path, hash_v1, ttl=30.0) is False
-        assert _check_dedup_cache(path, hash_v2, ttl=30.0) is False
+        assert _check_dedup_cache(path, hash_v1, self._state_dir, ttl=30.0) is False
+        assert _check_dedup_cache(path, hash_v2, self._state_dir, ttl=30.0) is False
 
     def test_different_files_not_dedup(self) -> None:
         """Two different files -> both processed, no dedup."""
@@ -304,8 +310,8 @@ class TestHookEventDedup:
 
         content_hash = hashlib.sha256(b"same content").hexdigest()
 
-        assert _check_dedup_cache("/a.py", content_hash, ttl=30.0) is False
-        assert _check_dedup_cache("/b.py", content_hash, ttl=30.0) is False
+        assert _check_dedup_cache("/a.py", content_hash, self._state_dir, ttl=30.0) is False
+        assert _check_dedup_cache("/b.py", content_hash, self._state_dir, ttl=30.0) is False
 
     def test_cache_expires_after_ttl(self) -> None:
         """After TTL expires, same file + hash is no longer a dup."""
@@ -316,17 +322,15 @@ class TestHookEventDedup:
 
         # First call at t=1000
         with patch("claude_rag.hooks.post_tool_use.time") as mock_time:
-            mock_time.monotonic.return_value = 1000.0
+            mock_time.time.return_value = 1000.0
             mock_time.strftime = time.strftime
-            mock_time.time = time.time
-            assert _check_dedup_cache(path, content_hash, ttl=30.0) is False
+            assert _check_dedup_cache(path, content_hash, self._state_dir, ttl=30.0) is False
 
         # Second call at t=1031 (past TTL of 30s)
         with patch("claude_rag.hooks.post_tool_use.time") as mock_time:
-            mock_time.monotonic.return_value = 1031.0
+            mock_time.time.return_value = 1031.0
             mock_time.strftime = time.strftime
-            mock_time.time = time.time
-            assert _check_dedup_cache(path, content_hash, ttl=30.0) is False
+            assert _check_dedup_cache(path, content_hash, self._state_dir, ttl=30.0) is False
 
 
 # ---------------------------------------------------------------------------

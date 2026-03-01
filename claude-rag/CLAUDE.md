@@ -77,13 +77,13 @@ When starting any coding task:
 ## Environment Setup
 ```bash
 # Required for local PostgreSQL (Docker)
-docker run -d --name claude-rag-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=claude_rag -p 5432:5432 pgvector/pgvector:pg17
+docker run -d --name claude-rag-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=claude_rag -p 5433:5432 pgvector/pgvector:pg17
 
 # Run migration
-PGPASSWORD=postgres PYTHONPATH=src python -m claude_rag.db.migrate
+PGPASSWORD=postgres PGPORT=5433 PYTHONPATH=src python -m claude_rag.db.migrate
 
 # Run tests
-PGPASSWORD=postgres PYTHONPATH=src python -m pytest tests/ -v
+PGPASSWORD=postgres PGPORT=5433 PYTHONPATH=src python -m pytest tests/ -v
 ```
 
 ## MCP Server Configuration
