@@ -1,0 +1,78 @@
+flowchart TD
+    P1["✅ Phase 1 DONE\nParser, Chunker, Watcher\nEmbeddings, DB, Pipeline"]
+
+    V["🔍 VERIFICATION\nV1.1-V1.10\nHuman-Observable Tests"]
+
+    H1["⚡ T-H1: PostToolUse\nRead Hook"]
+    H2["⚡ T-H2: PostToolUse\nBash/Grep Hooks"]
+    H3["⚡ T-H3: UserPromptSubmit\nHook"]
+    H4["⚡ T-H4: Session End\nSummary Ingestion"]
+    H5["⚡ T-H5: Async Queue\nfor Hook Processing"]
+
+    MH["✅ M-H\nHook Interception Active"]
+
+    E1["🧠 T-E1: Layer 1\nSemantic Summaries"]
+    E2["🧠 T-E2: Layer 2\nStructural Signatures"]
+    E3["🧠 T-E3: Layer 3\nDecision Context"]
+    E4["🧠 T-E4: Enrichment\nPipeline Orchestrator"]
+
+    ME["✅ M-E\nLayered Enrichment Active"]
+
+    D1["🔄 T-D1: File Content\nHash Index"]
+    D2["🔄 T-D2: Chunk-Level\nDedup"]
+    D3["🔄 T-D3: Coverage\nReport CLI"]
+
+    MD["✅ M-D\nDedup & Coverage Active"]
+
+    P3["➡️ Phase 3\nSearch + MCP Server\n(original plan)"]
+
+    P1 -->|"run all 10 tests"| V
+
+    V -->|"all pass"| H1
+    V -->|"all pass"| H2
+    V -->|"all pass"| H3
+
+    H1 --> H5
+    H2 --> H5
+    H3 --> H5
+    H5 --> H4
+
+    H4 --> MH
+
+    MH --> E1
+    MH --> E2
+    MH --> E3
+    MH --> D1
+
+    E1 --> E4
+    E2 --> E4
+    E3 --> E4
+
+    E4 --> ME
+
+    D1 --> D2
+    D2 --> D3
+
+    D3 --> MD
+
+    ME --> P3
+    MD --> P3
+
+    style P1 fill:#10b981,stroke:#065f46,color:#fff
+    style V fill:#f59e0b,stroke:#b45309,color:#fff
+    style H1 fill:#ef4444,stroke:#b91c1c,color:#fff
+    style H2 fill:#ef4444,stroke:#b91c1c,color:#fff
+    style H3 fill:#ef4444,stroke:#b91c1c,color:#fff
+    style H4 fill:#ef4444,stroke:#b91c1c,color:#fff
+    style H5 fill:#ef4444,stroke:#b91c1c,color:#fff
+    style MH fill:#ef4444,stroke:#b91c1c,color:#fff
+    style E1 fill:#8b5cf6,stroke:#5b21b6,color:#fff
+    style E2 fill:#8b5cf6,stroke:#5b21b6,color:#fff
+    style E3 fill:#8b5cf6,stroke:#5b21b6,color:#fff
+    style E4 fill:#8b5cf6,stroke:#5b21b6,color:#fff
+    style ME fill:#8b5cf6,stroke:#5b21b6,color:#fff
+    style D1 fill:#06b6d4,stroke:#0e7490,color:#fff
+    style D2 fill:#06b6d4,stroke:#0e7490,color:#fff
+    style D3 fill:#06b6d4,stroke:#0e7490,color:#fff
+    style MD fill:#06b6d4,stroke:#0e7490,color:#fff
+    style P3 fill:#3b82f6,stroke:#1e40af,color:#fff

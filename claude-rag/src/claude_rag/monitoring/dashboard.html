@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0c0f;
+    --surface: #141419;
+    --border: #1e1e28;
+    --border-hover: #2a2a3a;
+    --text: #c8c8d4;
+    --text-dim: #6b6b80;
+    --text-bright: #eeeefc;
+    --accent: #5eead4;
+    --accent-dim: rgba(45,212,191,0.13);
+    --write: #f472b6;
+    --write-dim: rgba(244,114,182,0.13);
+    --read: #60a5fa;
+    --read-dim: rgba(96,165,250,0.13);
+    --warn: #fbbf24;
+    --error: #ef4444;
+    --success: #34d399;
+    --purple: #a78bfa;
+    --purple-dim: rgba(167,139,250,0.13);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  #app {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px 20px;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Header */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .status-ring {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+  .status-ring.active {
+    background: var(--accent);
+    box-shadow: 0 0 12px rgba(94,234,212,0.4);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .status-ring.idle { background: var(--text-dim); }
+  .title {
+    font-size: 16px; font-weight: 700; color: var(--text-bright);
+    font-family: 'JetBrains Mono', monospace; letter-spacing: -0.5px;
+  }
+  .session-badge {
+    font-size: 11px; color: var(--text-dim); font-family: monospace;
+    background: var(--surface); padding: 2px 8px; border-radius: 4px;
+  }
+  .dots { display: flex; gap: 8px; }
+  .dot-row { display: flex; align-items: center; gap: 6px; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+  }
+  .dot.ok { background: var(--success); box-shadow: 0 0 6px rgba(52,211,153,0.53); }
+  .dot.fail { background: var(--error); box-shadow: 0 0 6px rgba(239,68,68,0.53); }
+  .dot-label { font-size: 11px; font-family: monospace; }
+  .dot.ok + .dot-label, .dot-row.ok .dot-label { color: var(--text-dim); }
+  .dot.fail + .dot-label, .dot-row.fail .dot-label { color: var(--error); }
+
+  .btn {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 4px; padding: 3px 10px; font-size: 10px; cursor: pointer;
+    font-family: monospace; text-transform: uppercase; letter-spacing: 1px;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--border-hover); }
+  .btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .btn-stop {
+    background: transparent; border: 1px solid var(--error); color: var(--error);
+    border-radius: 4px; padding: 3px 10px; font-size: 10px; cursor: pointer;
+    font-family: monospace; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .btn-stop:hover { background: rgba(239,68,68,0.13); }
+
+  /* Error banner */
+  .error-banner {
+    background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
+    font-size: 11px; color: var(--error); font-family: monospace;
+  }
+
+  /* Section header */
+  .section { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; margin-top: 20px; }
+  .section-icon { font-size: 14px; }
+  .section-title {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.5px;
+    text-transform: uppercase; font-family: monospace;
+  }
+  .section-line { flex: 1; height: 1px; background: var(--border); margin-left: 8px; }
+
+  /* Cards */
+  .card-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; flex: 1; min-width: 140;
+  }
+  .card-label {
+    font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 1.2px; margin-bottom: 4px; font-family: monospace;
+  }
+  .card-value-row { display: flex; align-items: baseline; gap: 4px; }
+  .card-value {
+    font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1;
+  }
+  .card-unit { font-size: 11px; color: var(--text-dim); }
+  .card-sub { font-size: 10px; color: var(--text-dim); margin-top: 4px; font-family: monospace; }
+
+  /* Mini bar */
+  .mini-bar { width: 100%; border-radius: 3px; overflow: hidden; }
+  .mini-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+
+  /* Two-col row */
+  .two-col { display: flex; gap: 10px; margin-bottom: 8px; }
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px;
+  }
+
+  /* Layer bar */
+  .layer-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+  .layer-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-swatch { width: 8px; height: 8px; border-radius: 2px; }
+  .legend-name { font-size: 11px; color: var(--text-dim); font-family: monospace; }
+  .legend-count { font-size: 11px; color: var(--text); font-family: monospace; font-weight: 600; }
+
+  /* Benchmark */
+  .bench-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .bench-card { flex: 1; min-width: 200px; }
+  .bench-pair { display: flex; align-items: center; gap: 12px; }
+  .bench-side { flex: 1; }
+  .bench-label { font-size: 10px; font-family: monospace; margin-bottom: 2px; }
+  .bench-num { font-size: 20px; font-weight: 700; font-family: monospace; }
+  .bench-arrow { font-size: 20px; color: var(--text-dim); }
+  .bench-savings { text-align: center; margin-top: 8px; }
+  .bench-savings-pct { font-size: 18px; font-weight: 700; color: var(--accent); font-family: monospace; }
+  .bench-savings-label { font-size: 11px; color: var(--text-dim); margin-left: 6px; }
+
+  /* Footer */
+  .footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border);
+    font-size: 10px; color: var(--text-dim); font-family: monospace;
+  }
+
+  /* Canvas container */
+  .timeline-canvas-wrap { position: relative; width: 100%; height: 90px; }
+  .timeline-canvas-wrap canvas { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div style="display:flex;align-items:center;justify-content:center;height:80vh;font-family:monospace;color:var(--text-dim)">Loading...</div>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  // ─── Color palette ───────────────────────────────────────────────
+  const C = {
+    bg: "#0c0c0f", surface: "#141419", border: "#1e1e28", borderHover: "#2a2a3a",
+    text: "#c8c8d4", textDim: "#6b6b80", textBright: "#eeeefc",
+    accent: "#5eead4", accentDim: "rgba(45,212,191,0.13)",
+    write: "#f472b6", writeDim: "rgba(244,114,182,0.13)",
+    read: "#60a5fa", readDim: "rgba(96,165,250,0.13)",
+    warn: "#fbbf24", error: "#ef4444", success: "#34d399",
+    purple: "#a78bfa", purpleDim: "rgba(167,139,250,0.13)",
+  };
+
+  const POLL_MS = 3000;
+  const MAX_HISTORY = 60;
+
+  let mode = (location.protocol === "file:") ? "demo" : "live";
+  let data = null;
+  let history = [];
+  let error = null;
+  let pollTimer = null;
+
+  // ─── Mock data generator ─────────────────────────────────────────
+  function generateMockData(prev) {
+    const now = Date.now();
+    const ts = new Date(now).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const baseWrite = prev?.write?.hooks_total || 47;
+    const baseRead = prev?.read?.searches_total || 23;
+    const active = Math.random() > 0.3;
+    return {
+      timestamp: now, ts_label: ts,
+      system: {
+        status: active ? "active" : "idle", session_id: active ? "a3f8c9e1" : null,
+        uptime_minutes: Math.floor((now - 1708900000000) / 60000) % 999,
+        db_connected: true, mcp_connected: true, enrichment_worker: true,
+        queue_depth: Math.max(0, Math.floor(Math.random() * 8) - 2),
+      },
+      write: {
+        hooks_total: baseWrite + (active ? Math.floor(Math.random() * 3) : 0),
+        hooks_read: baseWrite - 12 + (active ? Math.floor(Math.random() * 2) : 0),
+        hooks_bash: 8 + Math.floor(Math.random() * 2),
+        hooks_grep: 4 + Math.floor(Math.random()),
+        hooks_prompt: 11 + Math.floor(Math.random()),
+        chunks_total: 342 + Math.floor(Math.random() * 5),
+        chunks_text: 178 + Math.floor(Math.random() * 3),
+        chunks_heading: 89 + Math.floor(Math.random() * 2),
+        chunks_code: 52 + Math.floor(Math.random()),
+        chunks_other: 23,
+        dedup_hits: 14 + Math.floor(Math.random() * 2),
+        avg_hook_latency_ms: 45 + Math.floor(Math.random() * 30),
+        avg_enrich_latency_ms: 1200 + Math.floor(Math.random() * 800),
+        files_indexed: 23,
+      },
+      read: {
+        searches_total: baseRead + (active ? Math.floor(Math.random() * 2) : 0),
+        avg_relevance: 0.72 + Math.random() * 0.15,
+        avg_results_returned: 4.2 + Math.random() * 1.5,
+        avg_token_budget_used_pct: 68 + Math.floor(Math.random() * 20),
+        rag_first_pct: 87 + Math.floor(Math.random() * 10),
+        fallback_rate_pct: 8 + Math.floor(Math.random() * 5),
+        avg_search_latency_ms: 120 + Math.floor(Math.random() * 80),
+      },
+      benchmark: {
+        has_data: true,
+        rag_on_avg_tokens: 12400 + Math.floor(Math.random() * 1000),
+        rag_off_avg_tokens: 24800 + Math.floor(Math.random() * 1000),
+        rag_on_avg_reads: 1.8 + Math.random() * 0.5,
+        rag_off_avg_reads: 5.2 + Math.random() * 0.8,
+        token_savings_pct: 48 + Math.floor(Math.random() * 8),
+        read_savings_pct: 62 + Math.floor(Math.random() * 10),
+      },
+    };
+  }
+
+  // ─── Helper renderers ────────────────────────────────────────────
+  function statusDot(ok, label) {
+    const cls = ok ? "ok" : "fail";
+    return `<div class="dot-row ${cls}"><div class="dot ${cls}"></div><span class="dot-label">${label}</span></div>`;
+  }
+
+  function miniBar(value, max, color, height) {
+    height = height || 6;
+    const pct = Math.min((value / max) * 100, 100);
+    return `<div class="mini-bar" style="height:${height}px;background:${color}15">` +
+      `<div class="mini-bar-fill" style="width:${pct}%;height:100%;background:${color}"></div></div>`;
+  }
+
+  function metricCard(label, value, opts) {
+    opts = opts || {};
+    const color = opts.color || C.textBright;
+    const unit = opts.unit ? `<span class="card-unit">${opts.unit}</span>` : "";
+    const sub = opts.sub ? `<div class="card-sub">${opts.sub}</div>` : "";
+    const display = typeof value === "number" ? value.toLocaleString() : value;
+    return `<div class="card"><div class="card-label">${label}</div>` +
+      `<div class="card-value-row"><span class="card-value" style="color:${color}">${display}</span>${unit}</div>${sub}</div>`;
+  }
+
+  function sectionHeader(icon, title, color) {
+    return `<div class="section"><span class="section-icon">${icon}</span>` +
+      `<span class="section-title" style="color:${color || C.textBright}">${title}</span>` +
+      `<div class="section-line"></div></div>`;
+  }
+
+  function layerBreakdown(w) {
+    if (!w) return "";
+    const layers = [
+      { name: "Text", count: w.chunks_text || 0, color: C.accent },
+      { name: "Heading", count: w.chunks_heading || 0, color: C.purple },
+      { name: "Code", count: w.chunks_code || 0, color: C.warn },
+      { name: "Other", count: w.chunks_other || 0, color: C.textDim },
+    ];
+    const total = layers.reduce(function(s, l) { return s + l.count; }, 0) || 1;
+    const barSegments = layers.map(function(l) {
+      const w = (l.count / total) * 100;
+      return `<div style="width:${w}%;background:${l.color};min-width:${l.count > 0 ? 4 : 0}px"></div>`;
+    }).join("");
+    const legendItems = layers.map(function(l) {
+      return `<div class="legend-item"><div class="legend-swatch" style="background:${l.color}"></div>` +
+        `<span class="legend-name">${l.name}</span><span class="legend-count">${l.count}</span></div>`;
+    }).join("");
+    return `<div class="panel" style="flex:1"><div class="card-label">Chunk Layers</div>` +
+      `<div class="layer-bar">${barSegments}</div><div class="layer-legend">${legendItems}</div></div>`;
+  }
+
+  function benchmarkComparison(bench) {
+    if (!bench || !bench.has_data) {
+      return `<div class="panel" style="text-align:center"><div style="color:${C.textDim};font-size:12px;font-family:monospace">` +
+        `No benchmark data yet. Run:<br><code style="color:${C.accent}">python rag_benchmark.py --run-all</code></div></div>`;
+    }
+    function side(label, value, color, isFloat) {
+      const display = isFloat ? value.toFixed(1) : value.toLocaleString();
+      return `<div class="bench-side"><div class="bench-label" style="color:${color}">${label}</div>` +
+        `<div class="bench-num" style="color:${color}">${display}</div>` +
+        miniBar(isFloat ? value : value, isFloat ? bench.rag_off_avg_reads : bench.rag_off_avg_tokens,
+                color, 6) + `</div>`;
+    }
+    function card(title, offVal, onVal, savingsPct, savingsLabel, isFloat) {
+      return `<div class="panel bench-card"><div class="card-label">${title}</div>` +
+        `<div class="bench-pair">${side("RAG OFF", offVal, C.error, isFloat)}` +
+        `<div class="bench-arrow">&rarr;</div>${side("RAG ON", onVal, C.success, isFloat)}</div>` +
+        `<div class="bench-savings"><span class="bench-savings-pct">-${savingsPct}%</span>` +
+        `<span class="bench-savings-label">${savingsLabel}</span></div></div>`;
+    }
+    return `<div class="bench-row">` +
+      card("Avg Tokens / Task", bench.rag_off_avg_tokens, bench.rag_on_avg_tokens, bench.token_savings_pct, "tokens saved", false) +
+      card("Avg File Reads / Task", bench.rag_off_avg_reads, bench.rag_on_avg_reads, bench.read_savings_pct, "fewer reads", true) +
+      `</div>`;
+  }
+
+  // ─── Canvas timeline ─────────────────────────────────────────────
+  function drawTimeline(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + "px";
+    canvas.style.height = rect.height + "px";
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = rect.height;
+    const pad = { top: 4, right: 8, bottom: 18, left: 32 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    const slice = history.slice(-30);
+    if (slice.length < 2) return;
+
+    // Find Y range
+    let yMax = 0;
+    slice.forEach(function(p) {
+      if (p.write_hooks > yMax) yMax = p.write_hooks;
+      if (p.read_searches > yMax) yMax = p.read_searches;
+    });
+    yMax = Math.max(yMax, 10);
+    yMax = Math.ceil(yMax * 1.1);
+
+    // Grid
+    ctx.strokeStyle = C.border;
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + plotH - (plotH * i / 4);
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(W - pad.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Y labels
+      ctx.fillStyle = C.textDim;
+      ctx.font = "9px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(Math.round(yMax * i / 4), pad.left - 4, y + 3);
+    }
+
+    // X labels (first and last)
+    ctx.fillStyle = C.textDim;
+    ctx.font = "9px monospace";
+    ctx.textAlign = "center";
+    if (slice[0].ts) ctx.fillText(slice[0].ts, pad.left, H - 2);
+    if (slice[slice.length - 1].ts) ctx.fillText(slice[slice.length - 1].ts, W - pad.right, H - 2);
+
+    // Draw polyline helper
+    function drawLine(key, color) {
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
+      slice.forEach(function(p, i) {
+        const x = pad.left + (plotW * i / (slice.length - 1));
+        const y = pad.top + plotH - (plotH * (p[key] || 0) / yMax);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    drawLine("write_hooks", C.write);
+    drawLine("read_searches", C.read);
+
+    // Legend
+    const legendY = pad.top + 2;
+    ctx.font = "9px monospace";
+    ctx.fillStyle = C.write;
+    ctx.textAlign = "left";
+    ctx.fillRect(pad.left + 4, legendY, 10, 2);
+    ctx.fillText("Hooks", pad.left + 18, legendY + 4);
+    ctx.fillStyle = C.read;
+    ctx.fillRect(pad.left + 64, legendY, 10, 2);
+    ctx.fillText("Searches", pad.left + 78, legendY + 4);
+  }
+
+  // ─── Full render ─────────────────────────────────────────────────
+  function render() {
+    if (!data) return;
+    const sys = data.system;
+    const w = data.write;
+    const r = data.read;
+    const bench = data.benchmark;
+
+    const modeBtn = mode === "live"
+      ? `<button class="btn active" onclick="window._toggleMode()">live</button>`
+      : `<button class="btn" onclick="window._toggleMode()">demo</button>`;
+    const stopBtn = `<button class="btn-stop" onclick="window._stopServer()">Stop Server</button>`;
+
+    const queueColor = sys.queue_depth > 20 ? C.error : sys.queue_depth > 5 ? C.warn : C.success;
+    const queueMsg = sys.queue_depth === 0 ? "&#10003; queue empty" : sys.queue_depth > 20 ? "&#9888; backlog building" : "processing normally";
+    const hookColor = w.avg_hook_latency_ms < 100 ? C.success : C.warn;
+    const relColor = r.avg_relevance > 0.7 ? C.success : C.warn;
+    const ragFirstColor = r.rag_first_pct > 80 ? C.success : C.warn;
+    const fallbackColor = r.fallback_rate_pct < 15 ? C.success : C.warn;
+    const budgetPct = r.avg_token_budget_used_pct || 0;
+
+    let html = "";
+
+    // Header
+    html += `<div class="header"><div class="header-left">` +
+      `<div class="status-ring ${sys.status === 'active' ? 'active' : 'idle'}"></div>` +
+      `<span class="title">RAG MONITOR</span>` +
+      `<span class="session-badge">${sys.status === 'active' ? 'session ' + sys.session_id : 'idle'}</span>` +
+      `</div><div class="header-right"><div class="dots">` +
+      statusDot(sys.db_connected, "DB") +
+      statusDot(sys.mcp_connected, "MCP") +
+      statusDot(sys.enrichment_worker, "ENRICH") +
+      `</div>${modeBtn}${stopBtn}</div></div>`;
+
+    // Error
+    if (error) {
+      html += `<div class="error-banner">${error}</div>`;
+    }
+
+    // ── Write pipeline
+    html += sectionHeader("&#9998;", "Write Pipeline &mdash; Ingestion", C.write);
+    html += `<div class="card-row">` +
+      metricCard("Hooks Fired", w.hooks_total, { color: C.write, sub: `Read: ${w.hooks_read} &middot; Bash: ${w.hooks_bash} &middot; Grep: ${w.hooks_grep} &middot; Prompt: ${w.hooks_prompt}` }) +
+      metricCard("Chunks", w.chunks_total, { color: C.accent, sub: `${w.files_indexed} files indexed` }) +
+      metricCard("Dedup Hits", w.dedup_hits, { color: C.success, sub: "redundant reads skipped" }) +
+      metricCard("Hook Latency", w.avg_hook_latency_ms, { color: hookColor, unit: "ms", sub: `enrich: ${w.avg_enrich_latency_ms}ms` }) +
+      `</div>`;
+
+    html += `<div class="two-col">` +
+      layerBreakdown(w) +
+      `<div class="panel" style="flex:1"><div class="card-label">Ingestion Queue</div>` +
+      `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">` +
+      `<span style="font-size:28px;font-weight:700;font-family:monospace;color:${queueColor}">${sys.queue_depth}</span>` +
+      `<span style="font-size:11px;color:${C.textDim}">pending</span></div>` +
+      miniBar(sys.queue_depth, 50, queueColor, 8) +
+      `<div style="font-size:10px;color:${C.textDim};margin-top:6px;font-family:monospace">${queueMsg}</div>` +
+      `</div></div>`;
+
+    // ── Read pipeline
+    html += sectionHeader("&#128269;", "Read Pipeline &mdash; Retrieval", C.read);
+    html += `<div class="card-row">` +
+      metricCard("RAG Searches", r.searches_total, { color: C.read, sub: `avg ${(r.avg_results_returned || 0).toFixed(1)} results` }) +
+      metricCard("Relevance", Math.round(r.avg_relevance * 100) + "%", { color: relColor, sub: "avg top-3 score" }) +
+      metricCard("RAG-First", r.rag_first_pct + "%", { color: ragFirstColor, sub: "sessions using RAG before Read" }) +
+      metricCard("Fallback", r.fallback_rate_pct + "%", { color: fallbackColor, sub: "fell back to direct read" }) +
+      `</div>`;
+
+    html += `<div class="two-col">` +
+      `<div class="panel" style="flex:1"><div class="card-label">Token Budget Usage</div>` +
+      `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">` +
+      `<span style="font-size:22px;font-weight:700;color:${C.read};font-family:monospace">${budgetPct}%</span>` +
+      `<span style="font-size:11px;color:${C.textDim}">of budget consumed</span></div>` +
+      miniBar(budgetPct, 100, C.read, 10) +
+      `<div style="font-size:10px;color:${C.textDim};margin-top:6px;font-family:monospace">Search: ${r.avg_search_latency_ms}ms avg</div>` +
+      `</div>` +
+      `<div class="panel" style="flex:2;padding:14px 8px 6px 0"><div class="card-label" style="padding-left:16px">Activity Timeline</div>` +
+      `<div class="timeline-canvas-wrap"><canvas id="timeline"></canvas></div></div></div>`;
+
+    // ── Benchmark
+    html += sectionHeader("&#9889;", "Benchmark &mdash; RAG ON vs OFF", C.purple);
+    html += benchmarkComparison(bench);
+
+    // ── Footer
+    html += `<div class="footer"><span>claude-rag &middot; polling every ${POLL_MS / 1000}s &middot; ${mode} mode</span>` +
+      `<span>${new Date().toLocaleString()}</span></div>`;
+
+    document.getElementById("app").innerHTML = html;
+
+    // Draw the canvas after DOM is updated
+    requestAnimationFrame(function() { drawTimeline("timeline"); });
+  }
+
+  // ─── Data fetching ───────────────────────────────────────────────
+  function fetchStats() {
+    if (mode === "demo") {
+      data = generateMockData(data);
+      pushHistory(data);
+      error = null;
+      render();
+    } else {
+      fetch("/stats").then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      }).then(function(newData) {
+        data = newData;
+        pushHistory(data);
+        error = null;
+        render();
+      }).catch(function(e) {
+        error = "Cannot reach /stats &mdash; " + e.message;
+        render();
+      });
+    }
+  }
+
+  function pushHistory(d) {
+    const ts = d.ts_label || new Date().toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    history.push({
+      ts: ts,
+      write_hooks: d.write ? d.write.hooks_total : 0,
+      read_searches: d.read ? d.read.searches_total : 0,
+      queue: d.system ? d.system.queue_depth : 0,
+      latency: d.write ? d.write.avg_hook_latency_ms : 0,
+      relevance: d.read ? Math.round((d.read.avg_relevance || 0) * 100) : 0,
+    });
+    if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+  }
+
+  // ─── Controls ────────────────────────────────────────────────────
+  window._toggleMode = function() {
+    mode = (mode === "demo") ? "live" : "demo";
+    history = [];
+    error = null;
+    restartPoll();
+  };
+
+  window._stopServer = function() {
+    if (!confirm("Stop the RAG dashboard server?")) return;
+    fetch("/shutdown", { method: "POST" }).then(function() {
+      document.getElementById("app").innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:80vh;font-family:monospace;color:' + C.textDim + '">Server stopped. You can close this tab.</div>';
+      clearInterval(pollTimer);
+    }).catch(function() {
+      document.getElementById("app").innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:80vh;font-family:monospace;color:' + C.textDim + '">Server stopped. You can close this tab.</div>';
+      clearInterval(pollTimer);
+    });
+  };
+
+  function restartPoll() {
+    clearInterval(pollTimer);
+    fetchStats();
+    pollTimer = setInterval(fetchStats, POLL_MS);
+  }
+
+  // ─── Resize handler ──────────────────────────────────────────────
+  window.addEventListener("resize", function() {
+    if (data) requestAnimationFrame(function() { drawTimeline("timeline"); });
+  });
+
+  // ─── Init ────────────────────────────────────────────────────────
+  restartPoll();
+
+})();
+</script>
+</body>
+</html>

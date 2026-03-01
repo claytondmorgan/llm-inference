@@ -1,0 +1,51 @@
+flowchart TD
+    START(("🚀 START"))
+
+    M0["✅ M0\nProject Scaffolded\nDB Ready"]
+    M1["✅ M1\nParser & Chunker Ready"]
+    M2["✅ M2\nFile Watcher Ready"]
+    M3["✅ M3\nEmbedding Providers Ready"]
+    M4["✅ M4\nDatabase Ready"]
+    M5["✅ M5\nE2E Ingestion Works"]
+    M6["✅ M6\nSearch Works"]
+    M7["✅ M7\nSearch Pipeline Complete"]
+    M8["✅ M8\nMCP Server + RAG-First Active"]
+    M9["✅ M9\nProduction Ready"]
+    DONE(("🏁 DONE"))
+
+    START -->|"T0.1-0.3: Project scaffold\nlocal config, PG + pgvector"| M0
+
+    M0 -->|"🔵 Agent A\nT1.1-1.4: Memory parser\nchunker + tests"| M1
+    M0 -->|"🟡 Agent B\nT3.1-3.2: Provider interface\nwrap EmbeddingGenerator"| M3
+    M0 -->|"🟡 Agent B\nT4.1-4.3: Schema from\nschema_legal.sql pattern\nDB manager, migration"| M4
+
+    M1 -->|"🔵 Agent A\nT2.1-2.2: Watchdog\nchange detection"| M2
+
+    M2 -->|"pipeline wiring"| M5
+    M3 -.->|"embed chunks"| M5
+    M4 -.->|"store chunks"| M5
+    M2 & M3 & M4 -->|"🔵 Agent A\nT5.1-5.2: Wire\ningestion pipeline"| M5
+
+    M3 -.->|"embed queries"| M6
+    M4 -->|"🟢 Agent C\nT6.1-6.3: Adapt hybrid RRF\nfrom app.py L1139-1191"| M6
+
+    M6 -->|"🟢 Agent C\nT7.1-7.3: Dedup\nformatter, threshold"| M7
+
+    M7 -->|"🟣 Agent D\nT8.1-8.5: MCP server\nClaude Code config\nCLAUDE.md instructions"| M8
+
+    M8 -->|"🟤 Agent E\nT9.1-9.4: Metadata\nCLI, logging"| M9
+
+    M9 --> DONE
+
+    style START fill:#10b981,stroke:#065f46,color:#fff
+    style DONE fill:#10b981,stroke:#065f46,color:#fff
+    style M0 fill:#3b82f6,stroke:#1e40af,color:#fff
+    style M1 fill:#8b5cf6,stroke:#5b21b6,color:#fff
+    style M2 fill:#8b5cf6,stroke:#5b21b6,color:#fff
+    style M3 fill:#f59e0b,stroke:#b45309,color:#fff
+    style M4 fill:#f59e0b,stroke:#b45309,color:#fff
+    style M5 fill:#ef4444,stroke:#b91c1c,color:#fff
+    style M6 fill:#06b6d4,stroke:#0e7490,color:#fff
+    style M7 fill:#06b6d4,stroke:#0e7490,color:#fff
+    style M8 fill:#ec4899,stroke:#be185d,color:#fff
+    style M9 fill:#84cc16,stroke:#4d7c0f,color:#fff
