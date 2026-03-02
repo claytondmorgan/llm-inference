@@ -124,11 +124,15 @@ def hybrid_search(
         ``'hybrid'``, ``'semantic'``, or ``'keyword'`` depending on
         which CTEs contributed.
     """
+    # Theoretical max RRF score: rank 1 in both signals = 2 / (k + 1)
+    rrf_max = 2.0 / (rrf_k + 1)
+
     params: dict = {
         "query_vec": query_embedding,
         "query_text": query_text,
         "top_k": top_k,
         "rrf_k": rrf_k,
+        "rrf_max": rrf_max,
     }
     if filter_params:
         params.update(filter_params)
@@ -181,8 +185,10 @@ def hybrid_search(
             COALESCE(s.metadata, k.metadata)        AS metadata,
             COALESCE(s.source_path, k.source_path)  AS source_path,
             COALESCE(s.similarity, 0)               AS cosine_similarity,
-            COALESCE(1.0 / (%(rrf_k)s + s.sem_rank), 0)
-                + COALESCE(1.0 / (%(rrf_k)s + k.kw_rank), 0) AS rrf_score,
+            (
+                COALESCE(1.0 / (%(rrf_k)s + s.sem_rank), 0)
+                + COALESCE(1.0 / (%(rrf_k)s + k.kw_rank), 0)
+            ) / %(rrf_max)s                         AS rrf_score,
             CASE
                 WHEN s.id IS NOT NULL AND k.id IS NOT NULL THEN 'hybrid'
                 WHEN s.id IS NOT NULL THEN 'semantic'

@@ -157,16 +157,21 @@ def create_server() -> Server:
             conn.close()
 
         # -- Post-process results ----------------------------------------------
+        # Per-signal quality gate:
+        #   keyword/hybrid: always pass (keyword match implies relevance)
+        #   semantic-only:  must meet cosine similarity threshold
         results = [
-            r for r in results if r.similarity >= _config.RELEVANCE_THRESHOLD
+            r for r in results
+            if r.search_method != "semantic"
+            or r.metadata.get("cosine_similarity", 0) >= _config.RELEVANCE_THRESHOLD
         ]
         results = deduplicate_results(results)
         context, tokens_used = format_context(results, token_budget=token_budget)
 
         _latency = int((_time.monotonic() - _t0) * 1000)
-        # Use cosine similarity (0-1) for relevance, not RRF score (~0.02)
-        _avg_cosine = (
-            sum(r.metadata.get("cosine_similarity", 0) for r in results) / len(results)
+        # Log avg normalized RRF score (0-1) — matches the threshold scale
+        _avg_rrf = (
+            sum(r.similarity for r in results) / len(results)
             if results
             else 0.0
         )
@@ -177,7 +182,7 @@ def create_server() -> Server:
             session_id=_session_id,
             query=query[:100],
             result_count=len(results),
-            relevance=round(_avg_cosine, 3),
+            relevance=round(_avg_rrf, 3),
             latency_ms=_latency,
             fallback=_is_fallback,
             budget_used_pct=_budget_pct,

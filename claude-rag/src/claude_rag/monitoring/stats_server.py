@@ -239,14 +239,16 @@ class StatsCollector:
         sc = self._search_counters
         total_searches = max(sc["searches_total"], 1)
 
-        # RAG-first % and Fallback % are complementary session-level metrics.
-        # Every session's first event is either "search" (rag-first) or "read"
-        # (fallback).  They MUST sum to 100%.
-        total_sessions_tracked = max(len(self._session_first_event), 1)
-        rag_first_pct = min(
-            int(sc["rag_first_count"] / total_sessions_tracked * 100), 100
-        ) if sc["rag_first_count"] > 0 else 0
-        fallback_rate_pct = 100 - rag_first_pct if len(self._session_first_event) > 0 else 0
+        # Fallback %: searches that returned 0 results (must rescan with grep).
+        fallback_rate_pct = (
+            int(sc["fallback_count"] / total_searches * 100)
+            if sc["fallback_count"] > 0
+            else 0
+        )
+
+        # RAG-first %: searches where RAG returned useful context,
+        # avoiding the need to rescan with grep/read.
+        rag_first_pct = 100 - fallback_rate_pct if sc["searches_total"] > 0 else 0
 
         return {
             "timestamp": int(time.time() * 1000),

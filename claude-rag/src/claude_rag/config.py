@@ -53,7 +53,7 @@ class Config:
 
     # --- Search ---
     SEARCH_TOP_K: int = int(os.getenv("SEARCH_TOP_K", "10"))
-    RELEVANCE_THRESHOLD: float = float(os.getenv("RELEVANCE_THRESHOLD", "0.0"))  # applied to RRF scores (~0-0.033)
+    RELEVANCE_THRESHOLD: float = float(os.getenv("RELEVANCE_THRESHOLD", "0.25"))  # min cosine similarity for semantic-only matches
     CONTEXT_TOKEN_BUDGET: int = int(os.getenv("CONTEXT_TOKEN_BUDGET", "4096"))
     RRF_K: int = int(os.getenv("RRF_K", "60"))  # RRF constant
 
