@@ -8,6 +8,61 @@
 | **Product Embeddings** | `sentence-transformers/all-MiniLM-L6-v2` | 384-dim, general-purpose (backward compatible) |
 | **Text Generation / RAG** | `microsoft/Phi-3.5-mini-instruct` (Q4_K_M GGUF) | 3.8B params, quantized for fast CPU inference via llama-cpp-python |
 
+## Running the Services
+
+### Local Development
+
+Start all services locally (PostgreSQL, Python on port 8000, Java on port 8080) with a single command:
+
+```bash
+./local-dev.sh                # Start everything
+./local-dev.sh --skip-java    # Python + DB only
+./local-dev.sh --skip-python  # Java + DB only (Python already running)
+./local-dev.sh --skip-build   # Skip Maven build (use existing JAR)
+./local-dev.sh --dry-run      # Preview what would happen
+```
+
+Run the full test battery after startup:
+
+```bash
+./local-dev-test.sh                    # Start services + run all tests
+./local-dev-test.sh --skip-startup     # Tests only (services already running)
+./local-dev-test.sh --skip-rag-tests   # Skip claude-rag pytest suite
+```
+
+Stop services:
+
+```bash
+./local-dev-stop.sh    # Stops Python + Java (leaves PostgreSQL running)
+```
+
+**Prerequisites:** Docker (for PostgreSQL), Python 3.11+, Java 17+, Maven. The script auto-detects the `.venv` virtual environment and installs missing dependencies from `requirements.txt`.
+
+**Architecture (local):**
+```
+localhost:8000  →  Python FastAPI  (embeddings, generation, search, legal)
+localhost:8080  →  Java Spring Boot (search-engine, delegates to Python)
+localhost:5433  →  PostgreSQL (claude-rag-pg container, database: llmdb)
+```
+
+### AWS
+
+Start all AWS infrastructure (RDS + ECS services):
+
+```bash
+./aws-startup.sh               # Start RDS and scale ECS services
+./aws-startup.sh --skip-rds    # Only manage ECS services
+./aws-startup.sh --dry-run     # Preview what would happen
+```
+
+Shut down to minimize costs:
+
+```bash
+./aws-shutdown.sh              # Stop ECS services and RDS
+./aws-shutdown.sh --skip-rds   # Only stop ECS services
+./aws-shutdown.sh --dry-run    # Preview what would happen
+```
+
 ## API Documentation (Swagger UI)
 
 Interactive API documentation is auto-generated and available at:
@@ -22,35 +77,26 @@ If running locally: `http://localhost:8080/docs`
 
 ## Running the API Tests
 
-IMPORTANT! : for ease of evaluation the inference service and java search service have been deployed to aws. To run locally takes multiple setup steps: database, server you can skip Prerequisites and goto Running Tests below. Everything is setup in aws. Also after running inference tests you can test fine tuning by cd fine-tuning/ then README, or legal fine tuning by cd fine-tuning-legal/ then README
-
-The `test-inference-api.sh` script provides comprehensive integration tests for the Python Inference Service API. The `test-legal-api.sh` script tests the legal document search endpoints. To run see Running the Tests.
-
-### Prerequisites
-
-1. **Python inference service running** - Start the API server first:
-   ```bash
-   pip install torch --index-url https://download.pytorch.org/whl/cpu
-   pip install -r requirements.txt
-   uvicorn app:app --host 0.0.0.0 --port 8080
-   ```
-
-2. **Database with data** - Some tests require documents/ingested records in the database for search operations to return meaningful results.
-
-3. **curl and Python 3** - Required for making HTTP requests and parsing JSON responses.
+The `test-inference-api.sh` script provides comprehensive integration tests for the Python Inference Service API (51 tests). The `test-legal-api.sh` script tests the legal document search endpoints (41 tests).
 
 ### Running the Tests
 
-**With a custom base URL (AWS):**
+**Local (after `./local-dev.sh`):**
+```bash
+./test-inference-api.sh http://localhost:8000
+./test-legal-api.sh http://localhost:8000
+```
+
+**AWS:**
 ```bash
 ./test-inference-api.sh http://llm-alb-1402483560.us-east-1.elb.amazonaws.com
 ./test-legal-api.sh http://llm-alb-1402483560.us-east-1.elb.amazonaws.com
 ```
 
-**Basic usage (localhost:8080):**
+**Full battery (start + test + report):**
 ```bash
-./test-inference-api.sh
-./test-legal-api.sh
+./local-dev-test.sh              # Local: start services, run all tests
+./local-dev-test.sh -v           # Local: verbose mode
 ```
 
 **Verbose mode (`-v` / `--verbose`):**
