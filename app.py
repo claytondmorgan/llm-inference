@@ -162,7 +162,16 @@ class LegalRAGResponse(BaseModel):
 # ============================================================
 
 def get_db_credentials():
-    """Get database credentials from Secrets Manager."""
+    """Get database credentials from env vars (local dev) or Secrets Manager (AWS)."""
+    if os.getenv('DB_HOST'):
+        return {
+            'host': os.getenv('DB_HOST'),
+            'port': os.getenv('DB_PORT', '5432'),
+            'database': os.getenv('DB_NAME', 'llmdb'),
+            'username': os.getenv('DB_USERNAME', 'postgres'),
+            'password': os.getenv('DB_PASSWORD', 'postgres'),
+        }
+
     secret_name = os.getenv('DB_SECRET_NAME', 'llm-db-credentials')
     region = os.getenv('AWS_REGION', 'us-east-1')
 
