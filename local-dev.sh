@@ -26,6 +26,13 @@ elif [ -f "$SCRIPT_DIR/venv/bin/python3" ]; then
 else
   PYTHON="python3"
 fi
+
+# ─── Java 17+ detection ─────────────────────────────────────────────────────
+JAVA_HOME_17="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+if [ -n "$JAVA_HOME_17" ]; then
+  export JAVA_HOME="$JAVA_HOME_17"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─── Color helpers ───────────────────────────────────────────────────────────
