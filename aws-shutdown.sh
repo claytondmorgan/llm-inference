@@ -5,11 +5,14 @@ set -euo pipefail
 REGION="us-east-1"
 CLUSTER="llm-cluster"
 RDS_ID="llm-postgres"
+RDS_SNAPSHOT_ID="llm-postgres-dormant"
 
 SERVICES=(llm-inference-service llm-search-engine llm-ingestion-worker)
 
 ECS_POLL_INTERVAL=10
 ECS_POLL_TIMEOUT=120
+RDS_SNAPSHOT_POLL_INTERVAL=15
+RDS_SNAPSHOT_POLL_TIMEOUT=600
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─── Color helpers ───────────────────────────────────────────────────────────
@@ -152,27 +155,109 @@ if ! $DRY_RUN; then
   fi
 fi
 
-# ─── Step 4: Stop RDS ───────────────────────────────────────────────────────
+# ─── Step 4: Snapshot and delete RDS ─────────────────────────────────────────
 if ! $SKIP_RDS; then
-  header "Stopping RDS instance"
+  header "Snapshot and delete RDS instance"
 
   rds_status=$(aws rds describe-db-instances \
     --db-instance-identifier "$RDS_ID" \
     --region "$REGION" \
     --query 'DBInstances[0].DBInstanceStatus' \
-    --output text 2>/dev/null || echo "unknown")
+    --output text 2>/dev/null || echo "not-found")
 
-  if [[ "$rds_status" == "stopped" || "$rds_status" == "stopping" ]]; then
-    ok "RDS $RDS_ID: already $rds_status"
+  if [[ "$rds_status" == "not-found" ]]; then
+    ok "RDS $RDS_ID: already deleted"
   elif $DRY_RUN; then
-    info "[DRY RUN] Would stop RDS instance $RDS_ID (currently: $rds_status)"
+    info "[DRY RUN] Would snapshot and delete RDS instance $RDS_ID (currently: $rds_status)"
   else
-    info "Stopping RDS instance $RDS_ID (currently: $rds_status)..."
-    aws rds stop-db-instance \
-      --db-instance-identifier "$RDS_ID" \
-      --region "$REGION" \
-      --output text >/dev/null
-    ok "RDS stop-db-instance issued"
+    # If stopped, start it first (can't snapshot a stopped instance)
+    if [[ "$rds_status" == "stopped" ]]; then
+      info "RDS is stopped — starting it so we can take a snapshot..."
+      aws rds start-db-instance \
+        --db-instance-identifier "$RDS_ID" \
+        --region "$REGION" \
+        --output text >/dev/null
+      rds_status="starting"
+    fi
+
+    # Wait for available if not already
+    if [[ "$rds_status" != "available" ]]; then
+      info "Waiting for RDS to become available for snapshot..."
+      elapsed=0
+      while (( elapsed < RDS_SNAPSHOT_POLL_TIMEOUT )); do
+        rds_status=$(aws rds describe-db-instances \
+          --db-instance-identifier "$RDS_ID" \
+          --region "$REGION" \
+          --query 'DBInstances[0].DBInstanceStatus' \
+          --output text 2>/dev/null || echo "not-found")
+        if [[ "$rds_status" == "available" ]]; then
+          ok "RDS is available (took ${elapsed}s)"
+          break
+        fi
+        info "RDS status: $rds_status (${elapsed}s / ${RDS_SNAPSHOT_POLL_TIMEOUT}s)..."
+        sleep "$RDS_SNAPSHOT_POLL_INTERVAL"
+        elapsed=$(( elapsed + RDS_SNAPSHOT_POLL_INTERVAL ))
+      done
+      if [[ "$rds_status" != "available" ]]; then
+        err "Timeout waiting for RDS to become available. Skipping snapshot+delete."
+        SKIP_RDS=true
+      fi
+    fi
+
+    if ! $SKIP_RDS; then
+      # Delete old snapshot if it exists
+      if aws rds describe-db-snapshots \
+          --db-snapshot-identifier "$RDS_SNAPSHOT_ID" \
+          --region "$REGION" \
+          --output text &>/dev/null; then
+        info "Deleting previous snapshot $RDS_SNAPSHOT_ID..."
+        aws rds delete-db-snapshot \
+          --db-snapshot-identifier "$RDS_SNAPSHOT_ID" \
+          --region "$REGION" \
+          --output text >/dev/null
+        ok "Old snapshot deleted"
+      fi
+
+      # Create new snapshot
+      info "Creating snapshot $RDS_SNAPSHOT_ID..."
+      aws rds create-db-snapshot \
+        --db-instance-identifier "$RDS_ID" \
+        --db-snapshot-identifier "$RDS_SNAPSHOT_ID" \
+        --region "$REGION" \
+        --output text >/dev/null
+      ok "Snapshot creation initiated"
+
+      # Wait for snapshot to complete
+      info "Waiting for snapshot to complete..."
+      elapsed=0
+      while (( elapsed < RDS_SNAPSHOT_POLL_TIMEOUT )); do
+        snap_status=$(aws rds describe-db-snapshots \
+          --db-snapshot-identifier "$RDS_SNAPSHOT_ID" \
+          --region "$REGION" \
+          --query 'DBSnapshots[0].Status' \
+          --output text 2>/dev/null || echo "unknown")
+        if [[ "$snap_status" == "available" ]]; then
+          ok "Snapshot $RDS_SNAPSHOT_ID ready (took ${elapsed}s)"
+          break
+        fi
+        info "Snapshot status: $snap_status (${elapsed}s / ${RDS_SNAPSHOT_POLL_TIMEOUT}s)..."
+        sleep "$RDS_SNAPSHOT_POLL_INTERVAL"
+        elapsed=$(( elapsed + RDS_SNAPSHOT_POLL_INTERVAL ))
+      done
+
+      if [[ "$snap_status" != "available" ]]; then
+        err "Timeout waiting for snapshot. RDS will NOT be deleted (data safety)."
+      else
+        # Delete the RDS instance
+        info "Deleting RDS instance $RDS_ID (snapshot saved as $RDS_SNAPSHOT_ID)..."
+        aws rds delete-db-instance \
+          --db-instance-identifier "$RDS_ID" \
+          --skip-final-snapshot \
+          --region "$REGION" \
+          --output text >/dev/null
+        ok "RDS delete-db-instance issued"
+      fi
+    fi
   fi
 else
   info "Skipping RDS (--skip-rds)"
@@ -189,17 +274,19 @@ if $DRY_RUN; then
   echo "  - Scale llm-search-engine     → desired 0"
   echo "  - Scale llm-ingestion-worker  → desired 0"
   if ! $SKIP_RDS; then
-    echo "  - Stop RDS instance $RDS_ID"
+    echo "  - Snapshot RDS instance $RDS_ID → $RDS_SNAPSHOT_ID"
+    echo "  - Delete RDS instance $RDS_ID"
   fi
 else
   echo "Shut down:"
   echo "  - ECS services scaled to desired=0"
   if ! $SKIP_RDS; then
-    echo "  - RDS instance $RDS_ID stopping"
+    echo "  - RDS instance $RDS_ID → snapshot saved as $RDS_SNAPSHOT_ID, instance deleted"
   fi
 fi
 
 echo ""
-echo -e "Estimated idle cost: ${GREEN}\$2.30/day${RESET} (ALB + stopped RDS storage)"
+echo -e "Estimated idle cost: ${GREEN}\$0.83/day${RESET} (ALB + VPC + ECR + Secrets Manager)"
 echo ""
 echo -e "${CYAN}Tip:${RESET} To bring everything back up, run: ./aws-startup.sh"
+echo -e "${CYAN}Note:${RESET} Startup will restore RDS from snapshot $RDS_SNAPSHOT_ID (~10 min)"

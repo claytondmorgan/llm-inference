@@ -5,6 +5,10 @@ set -euo pipefail
 REGION="us-east-1"
 CLUSTER="llm-cluster"
 RDS_ID="llm-postgres"
+RDS_SNAPSHOT_ID="llm-postgres-dormant"
+RDS_INSTANCE_CLASS="db.t3.medium"
+RDS_SUBNET_GROUP="llm-db-subnet-group"
+RDS_SECURITY_GROUP="sg-078ee389b94733a6a"
 ALB_HEALTH_URL="http://llm-alb-1402483560.us-east-1.elb.amazonaws.com/api/health"
 
 SERVICES=(llm-inference-service llm-search-engine)
@@ -12,7 +16,7 @@ TARGETS=(1 2)
 # Note: llm-ingestion-worker stays at 0 (on-demand only)
 
 RDS_POLL_INTERVAL=30
-RDS_POLL_TIMEOUT=600
+RDS_POLL_TIMEOUT=900
 ECS_POLL_INTERVAL=15
 ECS_POLL_TIMEOUT=300
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,7 +96,7 @@ if ! $SKIP_RDS; then
   info "RDS $RDS_ID: $rds_status"
 fi
 
-# ─── Step 1: Start RDS ──────────────────────────────────────────────────────
+# ─── Step 1: Start or restore RDS ───────────────────────────────────────────
 if ! $SKIP_RDS; then
   header "Starting RDS instance"
 
@@ -100,24 +104,54 @@ if ! $SKIP_RDS; then
     --db-instance-identifier "$RDS_ID" \
     --region "$REGION" \
     --query 'DBInstances[0].DBInstanceStatus' \
-    --output text 2>/dev/null || echo "unknown")
+    --output text 2>/dev/null || echo "not-found")
 
   if [[ "$rds_status" == "available" ]]; then
     ok "RDS $RDS_ID: already available"
   elif $DRY_RUN; then
-    info "[DRY RUN] Would start RDS instance $RDS_ID (currently: $rds_status)"
+    if [[ "$rds_status" == "not-found" ]]; then
+      info "[DRY RUN] Would restore RDS from snapshot $RDS_SNAPSHOT_ID"
+    else
+      info "[DRY RUN] Would start RDS instance $RDS_ID (currently: $rds_status)"
+    fi
   else
-    if [[ "$rds_status" == "stopped" ]]; then
+    if [[ "$rds_status" == "not-found" ]]; then
+      # Instance doesn't exist — check for snapshot and restore
+      snap_status=$(aws rds describe-db-snapshots \
+        --db-snapshot-identifier "$RDS_SNAPSHOT_ID" \
+        --region "$REGION" \
+        --query 'DBSnapshots[0].Status' \
+        --output text 2>/dev/null || echo "not-found")
+
+      if [[ "$snap_status" == "available" ]]; then
+        info "RDS instance not found — restoring from snapshot $RDS_SNAPSHOT_ID..."
+        aws rds restore-db-instance-from-db-snapshot \
+          --db-instance-identifier "$RDS_ID" \
+          --db-snapshot-identifier "$RDS_SNAPSHOT_ID" \
+          --db-instance-class "$RDS_INSTANCE_CLASS" \
+          --db-subnet-group-name "$RDS_SUBNET_GROUP" \
+          --vpc-security-group-ids "$RDS_SECURITY_GROUP" \
+          --no-publicly-accessible \
+          --no-multi-az \
+          --region "$REGION" \
+          --output text >/dev/null
+        ok "RDS restore-from-snapshot issued"
+      else
+        err "No RDS instance and no snapshot found ($RDS_SNAPSHOT_ID: $snap_status)"
+        err "Cannot start database. Aborting."
+        exit 1
+      fi
+    elif [[ "$rds_status" == "stopped" ]]; then
       info "Starting RDS instance $RDS_ID..."
       aws rds start-db-instance \
         --db-instance-identifier "$RDS_ID" \
         --region "$REGION" \
         --output text >/dev/null
       ok "RDS start-db-instance issued"
-    elif [[ "$rds_status" == "starting" ]]; then
-      info "RDS $RDS_ID is already starting..."
+    elif [[ "$rds_status" == "starting" || "$rds_status" == "creating" ]]; then
+      info "RDS $RDS_ID is already coming up ($rds_status)..."
     else
-      warn "RDS $RDS_ID in unexpected state: $rds_status — skipping start command"
+      warn "RDS $RDS_ID in unexpected state: $rds_status — waiting for it to resolve"
     fi
 
     # ─── Step 2: Wait for RDS available ──────────────────────────────────
@@ -128,7 +162,7 @@ if ! $SKIP_RDS; then
         --db-instance-identifier "$RDS_ID" \
         --region "$REGION" \
         --query 'DBInstances[0].DBInstanceStatus' \
-        --output text 2>/dev/null || echo "unknown")
+        --output text 2>/dev/null || echo "not-found")
 
       if [[ "$rds_status" == "available" ]]; then
         ok "RDS $RDS_ID is available (took ${elapsed}s)"
@@ -249,7 +283,7 @@ if $DRY_RUN; then
   echo ""
   echo "Actions that would be taken:"
   if ! $SKIP_RDS; then
-    echo "  - Start RDS instance $RDS_ID"
+    echo "  - Restore/start RDS instance $RDS_ID (from snapshot if needed)"
     echo "  - Wait for RDS to become available"
   fi
   echo "  - Scale llm-inference-service → desired 1  (8 vCPU, 16GB)"

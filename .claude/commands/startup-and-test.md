@@ -4,7 +4,11 @@ Bring up all AWS infrastructure and run the full test suite to verify everything
 
 ### 1. Start AWS infrastructure
 Run `./aws-startup.sh` from the project root to:
-- Start RDS instance (llm-postgres) and wait for it to become available
+- Check if RDS instance (llm-postgres) exists
+  - If deleted: restore from snapshot (llm-postgres-dormant) — takes ~10 min
+  - If stopped: start it normally
+  - If available: skip
+- Wait for RDS to become available
 - Scale ECS services: llm-inference-service to 1, llm-search-engine to 2
 - Wait for all tasks to reach RUNNING state
 - Hit the ALB health endpoint to confirm the system is live
